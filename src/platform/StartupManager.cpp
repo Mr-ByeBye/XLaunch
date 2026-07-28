@@ -30,7 +30,7 @@ namespace xlaunch
             else
             {
                 path.resize(length);
-                const std::wstring command = L"\"" + path + L"\"";
+                const std::wstring command = L"\"" + path + L"\" --startup";
                 result = RegSetValueExW(key, kValueName, 0, REG_SZ,
                     reinterpret_cast<const BYTE*>(command.c_str()), static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t)));
             }

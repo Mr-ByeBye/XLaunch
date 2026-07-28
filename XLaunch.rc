@@ -36,8 +36,8 @@ IDI_SMALL         ICON         "Xlaunch_ico.ico"
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 2026,7,28,1
- PRODUCTVERSION 2026,7,28,1
+ FILEVERSION 2026,7,29,2
+ PRODUCTVERSION 2026,7,29,2
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -54,12 +54,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "Mobius\0"
             VALUE "FileDescription", "XLaunch Windows 快速启动工具\0"
-            VALUE "FileVersion", "2026.07.28.01\0"
+            VALUE "FileVersion", "2026.07.29.02\0"
             VALUE "InternalName", "XLaunch\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 Mobius\0"
             VALUE "OriginalFilename", "XLaunch.exe\0"
             VALUE "ProductName", "XLaunch\0"
-            VALUE "ProductVersion", "v2026072801\0"
+            VALUE "ProductVersion", "v2026072902\0"
         END
     END
     BLOCK "VarFileInfo"

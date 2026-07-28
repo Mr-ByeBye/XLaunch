@@ -144,4 +144,34 @@ namespace xlaunch
         MakeLaunchItemPortable(item);
         return { true, std::move(item), {} };
     }
+
+    LaunchItemResult CreateLaunchItemFromShellItem(
+        const std::wstring& fileSystemPath,
+        const std::wstring& parsingName,
+        const std::wstring& displayName)
+    {
+        if (!fileSystemPath.empty())
+        {
+            LaunchItemResult fileResult = CreateLaunchItemFromPath(fileSystemPath);
+            if (fileResult.success)
+            {
+                if (!displayName.empty() && fileResult.item.automaticName.empty())
+                    fileResult.item.automaticName = WideToUtf8(displayName);
+                return fileResult;
+            }
+        }
+
+        const std::wstring& target = !parsingName.empty() ? parsingName : fileSystemPath;
+        if (target.empty())
+            return { false, {}, "无法读取该 Windows Shell 项目的目标。" };
+
+        LaunchItem item;
+        item.id = MakeId("item");
+        item.type = ItemType::Shell;
+        item.target = WideToUtf8(target);
+        item.automaticName = WideToUtf8(displayName);
+        if (item.automaticName.empty())
+            item.automaticName = DeriveAutomaticName(item.target);
+        return { true, std::move(item), {} };
+    }
 }

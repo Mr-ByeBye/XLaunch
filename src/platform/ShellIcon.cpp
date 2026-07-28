@@ -54,6 +54,27 @@ namespace xlaunch
             return icon;
         }
 
+        HICON IconFromShellParsingName(const std::wstring& parsingName, int requestedSize)
+        {
+            PIDLIST_ABSOLUTE itemIdList = nullptr;
+            if (FAILED(SHParseDisplayName(parsingName.c_str(), nullptr, &itemIdList, 0, nullptr)) || itemIdList == nullptr)
+                return nullptr;
+            SHFILEINFOW info{};
+            const DWORD_PTR result = SHGetFileInfoW(
+                reinterpret_cast<LPCWSTR>(itemIdList), 0, &info, sizeof(info), SHGFI_PIDL | SHGFI_SYSICONINDEX);
+            CoTaskMemFree(itemIdList);
+            if (result == 0)
+                return nullptr;
+            IImageList* imageList = nullptr;
+            const int listSize = requestedSize >= 48 ? SHIL_EXTRALARGE : (requestedSize >= 32 ? SHIL_LARGE : SHIL_SMALL);
+            if (FAILED(SHGetImageList(listSize, IID_PPV_ARGS(&imageList))) || imageList == nullptr)
+                return nullptr;
+            HICON icon = nullptr;
+            imageList->GetIcon(info.iIcon, ILD_TRANSPARENT, &icon);
+            imageList->Release();
+            return icon;
+        }
+
         std::wstring DefaultBrowserExecutable()
         {
             DWORD length = 0;
@@ -131,6 +152,12 @@ namespace xlaunch
         }
 
         const std::wstring target = Utf8ToWide(ResolvePortablePath(item.target));
+        if (item.type == ItemType::Shell)
+        {
+            if (HICON icon = IconFromShellParsingName(target, requestedSize))
+                return { icon, false, target };
+            return FallbackIcon(requestedSize);
+        }
         if (item.type == ItemType::Url)
         {
             const std::wstring browser = DefaultBrowserExecutable();

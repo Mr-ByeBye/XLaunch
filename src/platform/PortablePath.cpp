@@ -25,9 +25,9 @@ namespace xlaunch
             return result;
         }
 
-        bool IsUrl(const std::string& value)
+        bool IsNonFileTarget(const std::string& value)
         {
-            return value.find("://") != std::string::npos;
+            return value.find("://") != std::string::npos || value.rfind("shell:", 0) == 0 || value.rfind("::{", 0) == 0;
         }
 
         bool EscapesBase(const std::filesystem::path& relative)
@@ -49,7 +49,7 @@ namespace xlaunch
 
     std::string ResolvePortablePath(const std::string& value)
     {
-        if (value.empty() || IsUrl(value)) return value;
+        if (value.empty() || IsNonFileTarget(value)) return value;
         const std::filesystem::path path(Utf8ToWide(value));
         if (path.is_absolute()) return value;
         return WideToUtf8((ExecutableDirectory() / path).lexically_normal().wstring());
@@ -57,7 +57,7 @@ namespace xlaunch
 
     std::string MakePortablePath(const std::string& value)
     {
-        if (value.empty() || IsUrl(value)) return value;
+        if (value.empty() || IsNonFileTarget(value)) return value;
         const std::filesystem::path input(Utf8ToWide(value));
         if (!input.is_absolute()) return WideToUtf8(input.lexically_normal().wstring());
 

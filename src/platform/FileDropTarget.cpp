@@ -1,6 +1,9 @@
 #include "platform/FileDropTarget.h"
 
 #include <shellapi.h>
+#include <shobjidl.h>
+#include <shlobj.h>
+#include <wrl/client.h>
 
 namespace xlaunch
 {
@@ -44,54 +47,90 @@ namespace xlaunch
         return remaining;
     }
 
-    bool FileDropTarget::SupportsFiles(IDataObject* dataObject) const
+    bool FileDropTarget::SupportsItems(IDataObject* dataObject) const
     {
         if (dataObject == nullptr)
             return false;
         FORMATETC format = FileDropFormat();
-        return SUCCEEDED(dataObject->QueryGetData(&format));
+        if (SUCCEEDED(dataObject->QueryGetData(&format)))
+            return true;
+        Microsoft::WRL::ComPtr<IShellItemArray> items;
+        return SUCCEEDED(SHCreateShellItemArrayFromDataObject(dataObject, IID_PPV_ARGS(&items)));
     }
 
-    std::vector<std::wstring> FileDropTarget::ReadFiles(IDataObject* dataObject) const
+    std::vector<DroppedShellItem> FileDropTarget::ReadItems(IDataObject* dataObject) const
     {
-        std::vector<std::wstring> paths;
+        std::vector<DroppedShellItem> items;
+        Microsoft::WRL::ComPtr<IShellItemArray> shellItems;
+        if (dataObject != nullptr && SUCCEEDED(SHCreateShellItemArrayFromDataObject(dataObject, IID_PPV_ARGS(&shellItems))))
+        {
+            DWORD count = 0;
+            shellItems->GetCount(&count);
+            items.reserve(count);
+            for (DWORD index = 0; index < count; ++index)
+            {
+                Microsoft::WRL::ComPtr<IShellItem> shellItem;
+                if (FAILED(shellItems->GetItemAt(index, &shellItem)))
+                    continue;
+                DroppedShellItem item;
+                auto readName = [&](SIGDN kind, std::wstring& destination)
+                {
+                    PWSTR value = nullptr;
+                    if (SUCCEEDED(shellItem->GetDisplayName(kind, &value)) && value != nullptr)
+                    {
+                        destination = value;
+                        CoTaskMemFree(value);
+                    }
+                };
+                readName(SIGDN_FILESYSPATH, item.fileSystemPath);
+                readName(SIGDN_DESKTOPABSOLUTEPARSING, item.parsingName);
+                readName(SIGDN_NORMALDISPLAY, item.displayName);
+                if (!item.fileSystemPath.empty() || !item.parsingName.empty())
+                    items.push_back(std::move(item));
+            }
+            if (!items.empty())
+                return items;
+        }
+
         FORMATETC format = FileDropFormat();
         STGMEDIUM medium{};
         if (dataObject == nullptr || FAILED(dataObject->GetData(&format, &medium)))
-            return paths;
+            return items;
 
         const HDROP drop = static_cast<HDROP>(medium.hGlobal);
         if (drop != nullptr)
         {
             const UINT count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
-            paths.reserve(count);
+            items.reserve(count);
             for (UINT index = 0; index < count; ++index)
             {
                 const UINT length = DragQueryFileW(drop, index, nullptr, 0);
                 std::wstring path(length + 1, L'\0');
                 DragQueryFileW(drop, index, path.data(), static_cast<UINT>(path.size()));
                 path.resize(length);
-                paths.push_back(std::move(path));
+                items.push_back(DroppedShellItem{ path, path, {} });
             }
         }
         ReleaseStgMedium(&medium);
-        return paths;
+        return items;
     }
 
-    HRESULT FileDropTarget::DragEnter(IDataObject* dataObject, DWORD, POINTL, DWORD* effect)
+    HRESULT FileDropTarget::DragEnter(IDataObject* dataObject, DWORD, POINTL point, DWORD* effect)
     {
-        acceptsCurrentDrag_ = SupportsFiles(dataObject);
+        acceptsCurrentDrag_ = SupportsItems(dataObject);
         if (effect != nullptr)
             *effect = acceptsCurrentDrag_ ? DROPEFFECT_COPY : DROPEFFECT_NONE;
         if (dragStateCallback_)
-            dragStateCallback_(acceptsCurrentDrag_);
+            dragStateCallback_(acceptsCurrentDrag_, point);
         return S_OK;
     }
 
-    HRESULT FileDropTarget::DragOver(DWORD, POINTL, DWORD* effect)
+    HRESULT FileDropTarget::DragOver(DWORD, POINTL point, DWORD* effect)
     {
         if (effect != nullptr)
             *effect = acceptsCurrentDrag_ ? DROPEFFECT_COPY : DROPEFFECT_NONE;
+        if (dragStateCallback_)
+            dragStateCallback_(acceptsCurrentDrag_, point);
         return S_OK;
     }
 
@@ -99,19 +138,19 @@ namespace xlaunch
     {
         acceptsCurrentDrag_ = false;
         if (dragStateCallback_)
-            dragStateCallback_(false);
+            dragStateCallback_(false, POINTL{});
         return S_OK;
     }
 
-    HRESULT FileDropTarget::Drop(IDataObject* dataObject, DWORD, POINTL, DWORD* effect)
+    HRESULT FileDropTarget::Drop(IDataObject* dataObject, DWORD, POINTL point, DWORD* effect)
     {
-        std::vector<std::wstring> paths = ReadFiles(dataObject);
-        const bool accepted = acceptsCurrentDrag_ && !paths.empty();
+        std::vector<DroppedShellItem> items = ReadItems(dataObject);
+        const bool accepted = acceptsCurrentDrag_ && !items.empty();
         acceptsCurrentDrag_ = false;
         if (dragStateCallback_)
-            dragStateCallback_(false);
+            dragStateCallback_(false, point);
         if (accepted && dropCallback_)
-            dropCallback_(std::move(paths));
+            dropCallback_(std::move(items), point);
         if (effect != nullptr)
             *effect = accepted ? DROPEFFECT_COPY : DROPEFFECT_NONE;
         return S_OK;

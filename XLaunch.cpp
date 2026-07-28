@@ -52,13 +52,37 @@ namespace
     int g_fittedWindowHeight = 0;
     bool g_fitWidthAfterNextFrame = false;
     bool g_fitHeightAfterNextFrame = false;
+    bool g_persistWindowSizeAfterFrame = false;
     bool g_horizontalResizeOccurred = false;
     bool g_verticalResizeOccurred = false;
     UINT g_lastSizingEdge = 0;
+    bool g_trackingClientMouse = false;
+    bool g_trackingNonClientMouse = false;
+    bool g_autoHideSuppressed = false;
+    constexpr UINT_PTR kMouseLeaveHideTimerId = 0x584C;
 
     constexpr ImVec4 kClearColor{ 0.055f, 0.063f, 0.078f, 1.0f };
-    constexpr const char* kVersion = "v2026072801";
+    constexpr const char* kVersion = "v2026072902";
     std::wstring Utf8ToWide(const std::string& value);
+
+    bool HasCommandLineArgument(const wchar_t* expected)
+    {
+        int count = 0;
+        wchar_t** arguments = CommandLineToArgvW(GetCommandLineW(), &count);
+        if (arguments == nullptr)
+            return false;
+        bool found = false;
+        for (int index = 1; index < count; ++index)
+        {
+            if (_wcsicmp(arguments[index], expected) == 0)
+            {
+                found = true;
+                break;
+            }
+        }
+        LocalFree(arguments);
+        return found;
+    }
 
     std::string DisplayTitle(const xlaunch::AppConfig& config)
     {
@@ -159,8 +183,32 @@ namespace
 
     void HideMainWindow(HWND window)
     {
+        KillTimer(window, kMouseLeaveHideTimerId);
+        g_trackingClientMouse = false;
+        g_trackingNonClientMouse = false;
         ShowWindow(window, SW_HIDE);
         SetProcessWorkingSetSize(GetCurrentProcess(), static_cast<SIZE_T>(-1), static_cast<SIZE_T>(-1));
+    }
+
+    bool IsCursorOutsideWindow(HWND window)
+    {
+        POINT cursor{};
+        RECT bounds{};
+        return GetCursorPos(&cursor) && GetWindowRect(window, &bounds) && !PtInRect(&bounds, cursor);
+    }
+
+    void TrackMouseLeave(HWND window, bool nonClient)
+    {
+        KillTimer(window, kMouseLeaveHideTimerId);
+        bool& tracking = nonClient ? g_trackingNonClientMouse : g_trackingClientMouse;
+        if (tracking)
+            return;
+        DWORD flags = TME_LEAVE;
+        if (nonClient)
+            flags |= TME_NONCLIENT;
+        TRACKMOUSEEVENT event{ sizeof(event), flags, window, 0 };
+        if (TrackMouseEvent(&event))
+            tracking = true;
     }
 
     struct AppState
@@ -178,6 +226,7 @@ namespace
         std::string errorMessage;
         bool errorPopupRequested = false;
         bool draggingFiles = false;
+        std::size_t externalDropCategory = 0;
         bool itemShortcutCaptureActive = false;
 
         struct PendingDuplicate
@@ -347,17 +396,25 @@ namespace
                 SaveNow();
         }
 
-        void HandleDroppedFiles(const std::vector<std::wstring>& paths)
+        void UpdateExternalDropTarget(bool dragging, POINTL point)
         {
-            if (selectedCategory >= config.categories.size())
+            draggingFiles = dragging;
+            if (dragging && !config.categories.empty())
+                externalDropCategory = categoryManager.HitTestCategory(point, selectedCategory);
+        }
+
+        void HandleDroppedFiles(const std::vector<xlaunch::DroppedShellItem>& droppedItems, std::size_t categoryIndex)
+        {
+            if (categoryIndex >= config.categories.size())
                 return;
 
             bool added = false;
             std::string errors;
-            xlaunch::Category& category = config.categories[selectedCategory];
-            for (const std::wstring& path : paths)
+            xlaunch::Category& category = config.categories[categoryIndex];
+            for (const xlaunch::DroppedShellItem& droppedItem : droppedItems)
             {
-                xlaunch::LaunchItemResult result = xlaunch::CreateLaunchItemFromPath(path);
+                xlaunch::LaunchItemResult result = xlaunch::CreateLaunchItemFromShellItem(
+                    droppedItem.fileSystemPath, droppedItem.parsingName, droppedItem.displayName);
                 if (!result.success)
                 {
                     if (!errors.empty())
@@ -371,7 +428,7 @@ namespace
                     [&](const xlaunch::LaunchItem& existing) { return SameTarget(existing, result.item); });
                 if (duplicate)
                 {
-                    pendingDuplicates.push_back(PendingDuplicate{ selectedCategory, std::move(result.item) });
+                    pendingDuplicates.push_back(PendingDuplicate{ categoryIndex, std::move(result.item) });
                     duplicatePopupRequested = true;
                 }
                 else
@@ -497,6 +554,11 @@ namespace
                 settings.corner == xlaunch::ScreenCorner::BottomRight;
             x = right ? work.right - width - margin : work.left + margin;
             y = bottom ? work.bottom - height - margin : work.top + margin;
+        }
+        else if (settings.startupPosition == xlaunch::StartupPositionMode::Center)
+        {
+            x = work.left + (work.right - work.left - width) / 2;
+            y = work.top + (work.bottom - work.top - height) / 2;
         }
         else if (settings.startupPosition == xlaunch::StartupPositionMode::Cursor)
         {
@@ -708,7 +770,7 @@ namespace
             const bool hovered = ImGui::IsItemHovered();
             if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
             {
-                const int source = static_cast<int>(index);
+                const xlaunch::ItemDragPayload source{ state.selectedCategory, index };
                 ImGui::SetDragDropPayload("XLAUNCH_ITEM", &source, sizeof(source));
                 ImGui::Text("移动项目：%s", item.DisplayName().c_str());
                 ImGui::EndDragDropSource();
@@ -717,8 +779,12 @@ namespace
             {
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("XLAUNCH_ITEM"))
                 {
-                    reorderSource = *static_cast<const int*>(payload->Data);
-                    reorderTarget = static_cast<int>(index);
+                    const auto source = *static_cast<const xlaunch::ItemDragPayload*>(payload->Data);
+                    if (source.sourceCategory == state.selectedCategory)
+                    {
+                        reorderSource = static_cast<int>(source.itemIndex);
+                        reorderTarget = static_cast<int>(index);
+                    }
                 }
                 ImGui::EndDragDropTarget();
             }
@@ -886,7 +952,8 @@ namespace
             ImDrawList* foreground = ImGui::GetForegroundDrawList();
             foreground->AddRectFilled(gridMin, gridMax, IM_COL32(30, 69, 130, 70), 8.0f);
             foreground->AddRect(gridMin, gridMax, IM_COL32(85, 150, 255, 255), 8.0f, 0, 3.0f);
-            const std::string message = "释放以添加到「" + category.name + "」";
+            const std::size_t targetIndex = (std::min)(state.externalDropCategory, state.config.categories.size() - 1);
+            const std::string message = "释放以添加到「" + state.config.categories[targetIndex].name + "」";
             const ImVec2 textSize = ImGui::CalcTextSize(message.c_str());
             const ImVec2 textMin{
                 gridMin.x + (gridMax.x - gridMin.x - textSize.x) * 0.5f - 18.0f,
@@ -938,12 +1005,35 @@ namespace
             }
         }
         const float categoryWidth = (std::max)(120.0f * g_dpiScale, ImGui::GetContentRegionAvail().x - 62.0f * g_dpiScale);
+        xlaunch::ItemMoveRequest itemMove;
         state.categoryManager.Draw(
+            owner,
             state.config,
             state.selectedCategory,
             changed,
+            itemMove,
+            state.draggingFiles,
+            state.externalDropCategory,
             categoryWidth,
             g_dpiScale);
+        if (itemMove.requested && itemMove.source.sourceCategory < state.config.categories.size() &&
+            itemMove.destinationCategory < state.config.categories.size() &&
+            itemMove.source.sourceCategory != itemMove.destinationCategory)
+        {
+            auto& sourceItems = state.config.categories[itemMove.source.sourceCategory].items;
+            if (itemMove.source.itemIndex < sourceItems.size())
+            {
+                xlaunch::LaunchItem moved = std::move(sourceItems[itemMove.source.itemIndex]);
+                sourceItems.erase(sourceItems.begin() + static_cast<std::ptrdiff_t>(itemMove.source.itemIndex));
+                for (std::size_t index = 0; index < sourceItems.size(); ++index)
+                    sourceItems[index].sortOrder = static_cast<int>(index);
+                auto& destinationItems = state.config.categories[itemMove.destinationCategory].items;
+                moved.sortOrder = static_cast<int>(destinationItems.size());
+                destinationItems.push_back(std::move(moved));
+                changed = true;
+                saveImmediately = true;
+            }
+        }
         ImGui::SameLine();
         if (ImGui::Button(state.config.window.keepVisible ? "已固定##Pin" : "固定##Pin", ImVec2(56.0f * g_dpiScale, 29.0f * g_dpiScale)))
         {
@@ -954,7 +1044,7 @@ namespace
             saveImmediately = true;
         }
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(state.config.window.keepVisible ? "失去焦点或启动项目后仍保持显示" : "失去焦点或启动项目后自动隐藏");
+            ImGui::SetTooltip(state.config.window.keepVisible ? "鼠标移出或启动项目后仍保持显示" : "鼠标移出窗口后自动隐藏");
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 4.0f * g_dpiScale);
         ImGui::Separator();
         DrawIconGrid(owner, state, changed, saveImmediately);
@@ -976,6 +1066,8 @@ namespace
         const xlaunch::SettingsActions settingsActions = state.settingsPopup.Draw(owner, state.config, changed);
         DrawDuplicatePopup(state);
         DrawErrorPopup(state);
+        g_autoHideSuppressed = ImGui::IsPopupOpen(nullptr,
+            ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
         if (changed)
             state.MarkDirty();
         if (saveImmediately)
@@ -1010,14 +1102,36 @@ LRESULT WINAPI WndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
             }
         }
     }
+    if (message == WM_MOUSEMOVE)
+        TrackMouseLeave(window, false);
+    else if (message == WM_NCMOUSEMOVE)
+        TrackMouseLeave(window, true);
+    else if (message == WM_MOUSELEAVE || message == WM_NCMOUSELEAVE)
+    {
+        if (message == WM_MOUSELEAVE)
+            g_trackingClientMouse = false;
+        else
+            g_trackingNonClientMouse = false;
+        ImGui_ImplWin32_WndProcHandler(window, message, wParam, lParam);
+        if (g_keepVisible != nullptr && !*g_keepVisible && !g_autoHideSuppressed &&
+            IsWindowVisible(window) && IsCursorOutsideWindow(window))
+            SetTimer(window, kMouseLeaveHideTimerId, 100, nullptr);
+        return 0;
+    }
     if (ImGui_ImplWin32_WndProcHandler(window, message, wParam, lParam))
         return TRUE;
     switch (message)
     {
     case xlaunch::kTrayMessage:
-        if (LOWORD(lParam) == WM_CONTEXTMENU && g_trayIcon != nullptr) g_trayIcon->ShowMenu();
-        else if (LOWORD(lParam) == WM_LBUTTONDBLCLK) PostMessageW(window, xlaunch::kToggleWindowMessage, 0, 0);
+    {
+        const UINT trayEvent = LOWORD(lParam);
+        if (trayEvent == WM_CONTEXTMENU && g_trayIcon != nullptr)
+            g_trayIcon->ShowMenu();
+        else if (trayEvent == WM_LBUTTONDOWN || trayEvent == WM_LBUTTONUP ||
+            trayEvent == WM_LBUTTONDBLCLK || trayEvent == NIN_SELECT || trayEvent == NIN_KEYSELECT)
+            PostMessageW(window, xlaunch::kShowWindowMessage, 0, 0);
         return 0;
+    }
     case WM_COMMAND:
         if (LOWORD(wParam) == xlaunch::kTrayToggleCommand) PostMessageW(window, xlaunch::kToggleWindowMessage, 0, 0);
         else if (LOWORD(wParam) == xlaunch::kTrayAuthorCommand)
@@ -1038,10 +1152,17 @@ LRESULT WINAPI WndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
                     LaunchFromShortcut(window, *item);
         }
         return 0;
-    case WM_ACTIVATEAPP:
-        if (!wParam && g_keepVisible != nullptr && !*g_keepVisible && IsWindowVisible(window))
-            HideMainWindow(window);
-        return 0;
+    case WM_TIMER:
+        if (wParam == kMouseLeaveHideTimerId)
+        {
+            KillTimer(window, kMouseLeaveHideTimerId);
+            if (g_autoHideSuppressed)
+                SetTimer(window, kMouseLeaveHideTimerId, 100, nullptr);
+            else if (g_keepVisible != nullptr && !*g_keepVisible && IsWindowVisible(window) && IsCursorOutsideWindow(window))
+                HideMainWindow(window);
+            return 0;
+        }
+        break;
     case xlaunch::kToggleWindowMessage:
         if (IsWindowVisible(window) && !IsIconic(window) && GetForegroundWindow() == window)
             HideMainWindow(window);
@@ -1140,6 +1261,7 @@ LRESULT WINAPI WndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
             g_fitWidthAfterNextFrame = g_horizontalResizeOccurred;
             g_fitHeightAfterNextFrame = g_verticalResizeOccurred;
         }
+        g_persistWindowSizeAfterFrame = true;
         return 0;
     case WM_SYSCOMMAND:
         if ((wParam & 0xfff0) == SC_KEYMENU)
@@ -1172,6 +1294,7 @@ LRESULT WINAPI WndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 
 int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int showCommand)
 {
+    const bool launchedAtStartup = HasCommandLineArgument(L"--startup");
     HANDLE singleInstanceMutex = CreateMutexW(nullptr, FALSE, L"Local\\XLaunch.SingleInstance");
     if (singleInstanceMutex == nullptr)
         return 1;
@@ -1181,7 +1304,8 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
         {
             if (HWND existing = FindWindowW(L"XLaunchWindowClass", nullptr))
             {
-                PostMessageW(existing, xlaunch::kShowWindowMessage, 0, 0);
+                if (!launchedAtStartup)
+                    PostMessageW(existing, xlaunch::kShowWindowMessage, 0, 0);
                 break;
             }
             Sleep(50);
@@ -1206,7 +1330,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
     }
 
     const HWND window = CreateWindowExW(
-        0, windowClass.lpszClassName, L"XLaunch", WS_POPUP | WS_MINIMIZEBOX | WS_MAXIMIZEBOX,
+        WS_EX_TOOLWINDOW, windowClass.lpszClassName, L"XLaunch", WS_POPUP | WS_MINIMIZEBOX | WS_MAXIMIZEBOX,
         CW_USEDEFAULT, CW_USEDEFAULT,
         static_cast<int>(760.0f * dpiScale), static_cast<int>(500.0f * dpiScale),
         nullptr, nullptr, instance, nullptr);
@@ -1244,6 +1368,12 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
     const std::wstring applicationTitle = Utf8ToWide(DisplayTitle(state.config));
     SetWindowTextW(window, applicationTitle.c_str());
     ApplyWindowOpacity(window, state.config.appearance.windowOpacity);
+    state.config.window.width = std::clamp(state.config.window.width, 300, 10000);
+    state.config.window.height = std::clamp(state.config.window.height, 280, 10000);
+    SetWindowPos(window, nullptr, 0, 0,
+        static_cast<int>(state.config.window.width * dpiScale),
+        static_cast<int>(state.config.window.height * dpiScale),
+        SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
     ApplyStartupPosition(window, state.config);
     if (state.config.window.keepVisible)
         SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
@@ -1254,15 +1384,21 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
     g_trayIcon = &trayIcon;
     if (!trayIcon.Add(window, LoadIconW(instance, MAKEINTRESOURCEW(IDI_XLAUNCH)), applicationTitle.c_str()))
         state.ShowError("创建系统托盘图标失败。");
-    ShowWindow(window, showCommand);
-    UpdateWindow(window);
+    if (!launchedAtStartup)
+    {
+        ShowWindow(window, showCommand);
+        UpdateWindow(window);
+    }
     xlaunch::FileDropTarget* dropTarget = nullptr;
     bool dropTargetRegistered = false;
     if (oleInitialized)
     {
         dropTarget = new xlaunch::FileDropTarget(
-            [&](bool dragging) { state.draggingFiles = dragging; },
-            [&](std::vector<std::wstring> paths) { state.HandleDroppedFiles(paths); });
+            [&](bool dragging, POINTL point) { state.UpdateExternalDropTarget(dragging, point); },
+            [&](std::vector<xlaunch::DroppedShellItem> items, POINTL point) {
+                const std::size_t destination = state.categoryManager.HitTestCategory(point, state.selectedCategory);
+                state.HandleDroppedFiles(items, destination);
+            });
         const HRESULT registerResult = RegisterDragDrop(window, dropTarget);
         dropTargetRegistered = SUCCEEDED(registerResult);
         if (!dropTargetRegistered)
@@ -1323,6 +1459,18 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
             g_fitHeightAfterNextFrame = false;
             if (state.config.appearance.fitWindowToGridAfterResize)
                 FitWindowToGrid(window, fitWidth, fitHeight);
+        }
+        if (g_persistWindowSizeAfterFrame)
+        {
+            g_persistWindowSizeAfterFrame = false;
+            RECT bounds{};
+            if (GetWindowRect(window, &bounds))
+            {
+                state.config.window.width = (std::max)(300, static_cast<int>(std::lround((bounds.right - bounds.left) / g_dpiScale)));
+                state.config.window.height = (std::max)(280, static_cast<int>(std::lround((bounds.bottom - bounds.top) / g_dpiScale)));
+                state.MarkDirty();
+                state.SaveNow();
+            }
         }
     }
 

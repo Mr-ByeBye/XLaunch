@@ -73,6 +73,8 @@ int main()
     config.window.corner = xlaunch::ScreenCorner::BottomRight;
     config.window.customX = 321;
     config.window.customY = 654;
+    config.window.width = 888;
+    config.window.height = 666;
     config.window.title = "我的启动器";
     config.window.centerTitle = true;
     config.window.keepVisible = true;
@@ -115,6 +117,7 @@ int main()
     success &= Check(loaded.config.window.startupPosition == xlaunch::StartupPositionMode::Custom, "启动位置模式未保存");
     success &= Check(loaded.config.window.corner == xlaunch::ScreenCorner::BottomRight, "屏幕角落未保存");
     success &= Check(loaded.config.window.customX == 321 && loaded.config.window.customY == 654, "自定义窗口位置未保存");
+    success &= Check(loaded.config.window.width == 888 && loaded.config.window.height == 666, "窗口尺寸未保存");
     success &= Check(loaded.config.window.title == "我的启动器" && loaded.config.window.centerTitle && loaded.config.window.keepVisible,
         "自定义标题或固定显示状态未保存");
     success &= Check(loaded.config.hotkey.enabled, "快捷键启用状态未保存");

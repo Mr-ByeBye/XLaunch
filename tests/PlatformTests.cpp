@@ -190,11 +190,21 @@ int main(int argc, char** argv)
     }
     parsedItems.front().arguments = "/c exit 0";
 
+    const auto shellItem = xlaunch::CreateLaunchItemFromShellItem({}, L"shell:AppsFolder", L"应用");
+    success &= Check(shellItem.success && shellItem.item.type == xlaunch::ItemType::Shell &&
+        shellItem.item.target == "shell:AppsFolder" && shellItem.item.automaticName == "应用",
+        "Windows Shell 项目创建失败");
+    PIDLIST_ABSOLUTE appsFolderIdList = nullptr;
+    success &= Check(SUCCEEDED(SHParseDisplayName(L"shell:AppsFolder", nullptr, &appsFolderIdList, 0, nullptr)) &&
+        appsFolderIdList != nullptr, "AppsFolder Shell 解析失败");
+    if (appsFolderIdList != nullptr)
+        CoTaskMemFree(appsFolderIdList);
+
     bool dragActive = false;
-    std::vector<std::wstring> droppedPaths;
+    std::vector<xlaunch::DroppedShellItem> droppedItems;
     auto* dropTarget = new xlaunch::FileDropTarget(
-        [&](bool active) { dragActive = active; },
-        [&](std::vector<std::wstring> paths) { droppedPaths = std::move(paths); });
+        [&](bool active, POINTL) { dragActive = active; },
+        [&](std::vector<xlaunch::DroppedShellItem> items, POINTL) { droppedItems = std::move(items); });
     auto* dataObject = new HDropDataObject({
         (systemDirectory / L"cmd.exe").wstring(), temporaryDirectory.wstring(), textFile.wstring(), shortcut.wstring(), internetShortcut.wstring()
     });
@@ -202,7 +212,7 @@ int main(int argc, char** argv)
     dropTarget->DragEnter(dataObject, 0, POINTL{}, &dropEffect);
     success &= Check(dragActive && dropEffect == DROPEFFECT_COPY, "OLE DragEnter 未接受 CF_HDROP");
     dropTarget->Drop(dataObject, 0, POINTL{}, &dropEffect);
-    success &= Check(!dragActive && droppedPaths.size() == 5, "OLE 多项目 Drop 数据不完整");
+    success &= Check(!dragActive && droppedItems.size() == 5, "OLE 多项目 Drop 数据不完整");
     dataObject->Release();
     dropTarget->Release();
 

@@ -31,6 +31,5 @@ tests/**/x64/
 Thumbs.db
 Desktop.ini
 .DS_Store
-AI_RULES.md
-README.md
-ROADMAP.md
+# Local project notes and Markdown documentation
+*.md

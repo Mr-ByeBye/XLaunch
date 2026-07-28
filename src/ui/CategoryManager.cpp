@@ -27,11 +27,37 @@ namespace xlaunch
             selectedCategory = config.categories.size() - 1;
     }
 
-    void CategoryManager::Draw(AppConfig& config, std::size_t& selectedCategory, bool& changed, float width, float dpiScale)
+    std::size_t CategoryManager::HitTestCategory(POINTL screenPoint, std::size_t fallback) const
+    {
+        const POINT point{ screenPoint.x, screenPoint.y };
+        for (std::size_t index = 0; index < categoryRects_.size(); ++index)
+        {
+            if (PtInRect(&categoryRects_[index], point))
+                return index;
+        }
+        return fallback;
+    }
+
+    void CategoryManager::Draw(HWND owner, AppConfig& config, std::size_t& selectedCategory, bool& changed,
+        ItemMoveRequest& itemMove, bool externalDrag, std::size_t externalTargetCategory,
+        float width, float dpiScale)
     {
         int reorderSource = -1;
         int reorderTarget = -1;
-        ImGui::BeginChild("CategoryBar", ImVec2((std::max)(120.0f * dpiScale, width), 35.0f * dpiScale), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
+        categoryRects_.clear();
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2.0f * dpiScale, 3.0f * dpiScale));
+        constexpr ImGuiWindowFlags categoryBarFlags =
+            ImGuiWindowFlags_HorizontalScrollbar |
+            ImGuiWindowFlags_NoScrollbar |
+            ImGuiWindowFlags_NoScrollWithMouse;
+        ImGui::BeginChild("CategoryBar", ImVec2((std::max)(120.0f * dpiScale, width), 35.0f * dpiScale), ImGuiChildFlags_None, categoryBarFlags);
+        if (ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem))
+        {
+            const ImGuiIO& io = ImGui::GetIO();
+            const float wheel = io.MouseWheelH != 0.0f ? io.MouseWheelH : -io.MouseWheel;
+            if (wheel != 0.0f)
+                ImGui::SetScrollX(ImGui::GetScrollX() + wheel * 72.0f * dpiScale);
+        }
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(3.0f * dpiScale, 0.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
         ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.34f, 0.38f, 0.46f, 0.72f));
@@ -50,6 +76,22 @@ namespace xlaunch
             const float buttonWidth = (std::max)(64.0f * dpiScale, ImGui::CalcTextSize(config.categories[index].name.c_str()).x + 22.0f * dpiScale);
             if (ImGui::Button(config.categories[index].name.c_str(), ImVec2(buttonWidth, 29.0f * dpiScale)))
                 selectedCategory = index;
+            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+            {
+                renameIndex_ = static_cast<int>(index);
+                strncpy_s(nameBuffer_.data(), nameBuffer_.size(), config.categories[index].name.c_str(), _TRUNCATE);
+                validationError_.clear();
+                focusRenameInput_ = true;
+            }
+            const ImVec2 itemMin = ImGui::GetItemRectMin();
+            const ImVec2 itemMax = ImGui::GetItemRectMax();
+            POINT topLeft{ static_cast<LONG>(itemMin.x), static_cast<LONG>(itemMin.y) };
+            POINT bottomRight{ static_cast<LONG>(itemMax.x), static_cast<LONG>(itemMax.y) };
+            ClientToScreen(owner, &topLeft);
+            ClientToScreen(owner, &bottomRight);
+            categoryRects_.push_back(RECT{ topLeft.x, topLeft.y, bottomRight.x, bottomRight.y });
+            if (externalDrag && externalTargetCategory == index)
+                ImGui::GetForegroundDrawList()->AddRect(itemMin, itemMax, IM_COL32(85, 150, 255, 255), 3.0f, 0, 2.0f);
             if (selected)
                 ImGui::PopStyleColor(2);
 
@@ -67,6 +109,12 @@ namespace xlaunch
                     reorderSource = *static_cast<const int*>(payload->Data);
                     reorderTarget = static_cast<int>(index);
                 }
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("XLAUNCH_ITEM"))
+                {
+                    itemMove.requested = true;
+                    itemMove.source = *static_cast<const ItemDragPayload*>(payload->Data);
+                    itemMove.destinationCategory = index;
+                }
                 ImGui::EndDragDropTarget();
             }
 
@@ -77,6 +125,7 @@ namespace xlaunch
                     renameIndex_ = static_cast<int>(index);
                     strncpy_s(nameBuffer_.data(), nameBuffer_.size(), config.categories[index].name.c_str(), _TRUNCATE);
                     validationError_.clear();
+                    focusRenameInput_ = true;
                 }
                 if (ImGui::MenuItem("删除", nullptr, false, config.categories.size() > 1))
                 {
@@ -95,6 +144,7 @@ namespace xlaunch
         ImGui::PopStyleColor();
         ImGui::PopStyleVar(2);
         ImGui::EndChild();
+        ImGui::PopStyleVar();
 
         if (reorderSource >= 0 && reorderTarget >= 0 && reorderSource != reorderTarget &&
             reorderSource < static_cast<int>(config.categories.size()) && reorderTarget < static_cast<int>(config.categories.size()))
@@ -128,7 +178,7 @@ namespace xlaunch
                 const std::string name = nameBuffer_.data();
                 if (name.empty())
                     validationError_ = "分类名称不能为空。";
-                else if (NameExists(config, name, std::numeric_limits<std::size_t>::max()))
+                else if (NameExists(config, name, (std::numeric_limits<std::size_t>::max)()))
                     validationError_ = "分类名称不能重复。";
                 else
                 {
@@ -150,6 +200,11 @@ namespace xlaunch
         {
             ImGui::TextUnformatted("分类名称");
             ImGui::SetNextItemWidth(280.0f);
+            if (focusRenameInput_)
+            {
+                ImGui::SetKeyboardFocusHere();
+                focusRenameInput_ = false;
+            }
             const bool submitted = ImGui::InputText("##RenameCategoryName", nameBuffer_.data(), nameBuffer_.size(), ImGuiInputTextFlags_EnterReturnsTrue);
             if (!validationError_.empty())
                 ImGui::TextColored(ImVec4(0.95f, 0.40f, 0.40f, 1.0f), "%s", validationError_.c_str());

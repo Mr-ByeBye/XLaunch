@@ -15,7 +15,8 @@ namespace xlaunch
         File,
         Folder,
         Url,
-        Shortcut
+        Shortcut,
+        Shell
     };
 
     struct AppearanceSettings
@@ -26,11 +27,12 @@ namespace xlaunch
         float horizontalSpacing = 12.0f;
         float verticalSpacing = 12.0f;
         float windowOpacity = 1.0f;
-        bool fitWindowToGridAfterResize = false;
+        bool fitWindowToGridAfterResize = true;
     };
 
     enum class StartupPositionMode
     {
+        Center,
         Corner,
         Custom,
         Cursor
@@ -47,12 +49,14 @@ namespace xlaunch
     struct WindowSettings
     {
         std::string title = "XLaunch";
-        bool centerTitle = false;
+        bool centerTitle = true;
         bool keepVisible = false;
-        StartupPositionMode startupPosition = StartupPositionMode::Corner;
+        StartupPositionMode startupPosition = StartupPositionMode::Center;
         ScreenCorner corner = ScreenCorner::TopRight;
         int customX = 100;
         int customY = 100;
+        int width = 760;
+        int height = 500;
     };
 
     enum class HotkeyTrigger
@@ -161,6 +165,8 @@ namespace xlaunch
 
     inline ItemType DetectItemType(const std::string& target)
     {
+        if (target.rfind("shell:", 0) == 0 || target.rfind("::{", 0) == 0)
+            return ItemType::Shell;
         if (target.find("://") != std::string::npos)
             return ItemType::Url;
 
@@ -189,6 +195,7 @@ namespace xlaunch
         case ItemType::Folder: return "folder";
         case ItemType::Url: return "url";
         case ItemType::Shortcut: return "lnk";
+        case ItemType::Shell: return "shell";
         default: return "file";
         }
     }

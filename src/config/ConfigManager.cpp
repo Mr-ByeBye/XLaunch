@@ -52,15 +52,18 @@ namespace xlaunch
             if (type == "folder") return ItemType::Folder;
             if (type == "url") return ItemType::Url;
             if (type == "lnk") return ItemType::Shortcut;
+            if (type == "shell") return ItemType::Shell;
             if (type == "file") return ItemType::File;
             return DetectItemType(target);
         }
 
         StartupPositionMode ReadStartupPosition(const std::string& value)
         {
+            if (value == "center") return StartupPositionMode::Center;
+            if (value == "corner") return StartupPositionMode::Corner;
             if (value == "custom") return StartupPositionMode::Custom;
             if (value == "cursor") return StartupPositionMode::Cursor;
-            return StartupPositionMode::Corner;
+            return StartupPositionMode::Center;
         }
 
         ScreenCorner ReadScreenCorner(const std::string& value)
@@ -75,9 +78,11 @@ namespace xlaunch
         {
             switch (mode)
             {
+            case StartupPositionMode::Center: return "center";
+            case StartupPositionMode::Corner: return "corner";
             case StartupPositionMode::Custom: return "custom";
             case StartupPositionMode::Cursor: return "cursor";
-            default: return "corner";
+            default: return "center";
             }
         }
 
@@ -245,18 +250,20 @@ namespace xlaunch
                 config.appearance.horizontalSpacing = appearance->value("horizontalSpacing", 12.0f);
                 config.appearance.verticalSpacing = appearance->value("verticalSpacing", 12.0f);
                 config.appearance.windowOpacity = appearance->value("windowOpacity", 1.0f);
-                config.appearance.fitWindowToGridAfterResize = appearance->value("fitWindowToGridAfterResize", false);
+                config.appearance.fitWindowToGridAfterResize = appearance->value("fitWindowToGridAfterResize", true);
             }
 
             if (const auto window = root.find("window"); window != root.end() && window->is_object())
             {
                 config.window.title = window->value("title", "XLaunch");
-                config.window.centerTitle = window->value("centerTitle", false);
+                config.window.centerTitle = window->value("centerTitle", true);
                 config.window.keepVisible = window->value("keepVisible", false);
-                config.window.startupPosition = ReadStartupPosition(window->value("startupPosition", "corner"));
+                config.window.startupPosition = ReadStartupPosition(window->value("startupPosition", "center"));
                 config.window.corner = ReadScreenCorner(window->value("corner", "topRight"));
                 config.window.customX = window->value("customX", 100);
                 config.window.customY = window->value("customY", 100);
+                config.window.width = window->value("width", 760);
+                config.window.height = window->value("height", 500);
             }
 
             if (const auto hotkey = root.find("hotkey"); hotkey != root.end() && hotkey->is_object())
@@ -356,7 +363,9 @@ namespace xlaunch
                 { "startupPosition", StartupPositionName(config.window.startupPosition) },
                 { "corner", ScreenCornerName(config.window.corner) },
                 { "customX", config.window.customX },
-                { "customY", config.window.customY }
+                { "customY", config.window.customY },
+                { "width", config.window.width },
+                { "height", config.window.height }
             };
             root["hotkey"] = {
                 { "enabled", config.hotkey.enabled },

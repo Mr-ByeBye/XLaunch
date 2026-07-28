@@ -14,4 +14,8 @@ namespace xlaunch
     };
 
     [[nodiscard]] LaunchItemResult CreateLaunchItemFromPath(const std::wstring& path);
+    [[nodiscard]] LaunchItemResult CreateLaunchItemFromShellItem(
+        const std::wstring& fileSystemPath,
+        const std::wstring& parsingName,
+        const std::wstring& displayName);
 }

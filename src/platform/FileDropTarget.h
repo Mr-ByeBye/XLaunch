@@ -10,11 +10,18 @@
 
 namespace xlaunch
 {
+    struct DroppedShellItem
+    {
+        std::wstring fileSystemPath;
+        std::wstring parsingName;
+        std::wstring displayName;
+    };
+
     class FileDropTarget final : public IDropTarget
     {
     public:
-        using DragStateCallback = std::function<void(bool)>;
-        using DropCallback = std::function<void(std::vector<std::wstring>)>;
+        using DragStateCallback = std::function<void(bool, POINTL)>;
+        using DropCallback = std::function<void(std::vector<DroppedShellItem>, POINTL)>;
 
         FileDropTarget(DragStateCallback dragStateCallback, DropCallback dropCallback);
 
@@ -27,8 +34,8 @@ namespace xlaunch
         HRESULT STDMETHODCALLTYPE Drop(IDataObject* dataObject, DWORD keyState, POINTL point, DWORD* effect) override;
 
     private:
-        [[nodiscard]] bool SupportsFiles(IDataObject* dataObject) const;
-        [[nodiscard]] std::vector<std::wstring> ReadFiles(IDataObject* dataObject) const;
+        [[nodiscard]] bool SupportsItems(IDataObject* dataObject) const;
+        [[nodiscard]] std::vector<DroppedShellItem> ReadItems(IDataObject* dataObject) const;
 
         std::atomic<ULONG> referenceCount_{ 1 };
         DragStateCallback dragStateCallback_;

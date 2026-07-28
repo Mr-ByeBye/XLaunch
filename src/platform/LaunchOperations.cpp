@@ -4,6 +4,7 @@
 #include <commdlg.h>
 #include <filesystem>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <shobjidl.h>
 #include <wrl/client.h>
 #include <vector>
@@ -73,10 +74,31 @@ namespace xlaunch
                 return { false, FormatWindowsError(GetLastError()) };
             return { true, {} };
         }
+
+        OperationResult ShellOpenParsingName(const std::wstring& target)
+        {
+            PIDLIST_ABSOLUTE itemIdList = nullptr;
+            const HRESULT parseResult = SHParseDisplayName(target.c_str(), nullptr, &itemIdList, 0, nullptr);
+            if (FAILED(parseResult) || itemIdList == nullptr)
+                return ShellOpen(L"open", target, {}, {});
+
+            SHELLEXECUTEINFOW info{};
+            info.cbSize = sizeof(info);
+            info.fMask = SEE_MASK_IDLIST | SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
+            info.lpVerb = L"open";
+            info.lpIDList = itemIdList;
+            info.nShow = SW_SHOWNORMAL;
+            const BOOL launched = ShellExecuteExW(&info);
+            const DWORD error = launched ? ERROR_SUCCESS : GetLastError();
+            CoTaskMemFree(itemIdList);
+            return launched ? OperationResult{ true, {} } : OperationResult{ false, FormatWindowsError(error) };
+        }
     }
 
     OperationResult Launch(const LaunchItem& item, bool forceAdministrator)
     {
+        if (item.type == ItemType::Shell)
+            return ShellOpenParsingName(Utf8ToWide(item.target));
         const bool administrator = forceAdministrator || item.runAsAdministrator;
         return ShellOpen(
             administrator ? L"runas" : L"open",
@@ -87,6 +109,8 @@ namespace xlaunch
 
     OperationResult OpenContainingLocation(const LaunchItem& item)
     {
+        if (item.type == ItemType::Shell)
+            return { false, "Windows Shell 项目没有可打开的本地所在位置。" };
         const std::wstring target = Utf8ToWide(ResolvePortablePath(item.target));
         if (target.empty() || item.target.find("://") != std::string::npos)
             return { false, "该目标没有可打开的本地位置。" };

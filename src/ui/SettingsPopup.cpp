@@ -141,10 +141,10 @@ namespace xlaunch
 
             ImGui::Spacing();
             SectionTitle("启动位置");
-            constexpr const char* positionNames[]{ "屏幕角落", "用户自定义", "鼠标位置" };
+            constexpr const char* positionNames[]{ "屏幕正中", "屏幕角落", "用户自定义", "鼠标位置" };
             int position = static_cast<int>(config.window.startupPosition);
             ImGui::SetNextItemWidth(125.0f);
-            if (ImGui::Combo("##PositionMode", &position, positionNames, 3))
+            if (ImGui::Combo("##PositionMode", &position, positionNames, 4))
             {
                 config.window.startupPosition = static_cast<StartupPositionMode>(position);
                 changed = true;
@@ -175,8 +175,10 @@ namespace xlaunch
                 }
                 ImGui::TextDisabled("%d, %d", config.window.customX, config.window.customY);
             }
-            else
+            else if (config.window.startupPosition == StartupPositionMode::Cursor)
                 ImGui::TextDisabled("每次呼出时定位到鼠标附近");
+            else
+                ImGui::TextDisabled("显示在主屏幕工作区域正中");
 
             ImGui::TableNextColumn();
             SectionTitle("快捷呼出");
