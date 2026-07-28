@@ -1,0 +1,36 @@
+# Visual Studio user state and indexes
+.vs/
+*.suo
+*.user
+*.VC.db
+*.opendb
+*.ipch
+
+# Build outputs and intermediates
+/Debug/
+/Release/
+/x64/
+/XLaunch/
+tests/x64/
+tests/**/x64/
+*.obj
+*.pdb
+*.ilk
+*.idb
+*.tlog
+*.lastbuildstate
+*.recipe
+
+# Personal portable configuration and generated packages
+/config/
+/dist/
+*.tmp
+*.corrupt-*
+
+# OS/editor noise
+Thumbs.db
+Desktop.ini
+.DS_Store
+AI_RULES.md
+README.md
+ROADMAP.md
