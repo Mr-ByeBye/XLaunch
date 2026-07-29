@@ -17,7 +17,9 @@ namespace xlaunch
     public:
         void OpenNew(std::size_t categoryIndex);
         void OpenEdit(const AppConfig& config, std::size_t categoryIndex, std::size_t itemIndex);
+        void Close() { open_ = false; capturingShortcut_ = 0; }
         void Draw(HWND owner, AppConfig& config, IconCache& iconCache, bool& changed, bool& saveImmediately);
+        [[nodiscard]] bool IsOpen() const { return open_; }
         [[nodiscard]] bool IsCapturingShortcut() const { return capturingShortcut_ != 0; }
 
     private:
@@ -25,6 +27,7 @@ namespace xlaunch
         void ApplySelectedPath(const std::string& path);
         [[nodiscard]] LaunchItem BuildItem() const;
 
+        bool open_ = false;
         bool openRequested_ = false;
         bool editing_ = false;
         std::size_t categoryIndex_ = 0;

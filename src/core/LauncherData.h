@@ -46,6 +46,13 @@ namespace xlaunch
         BottomRight
     };
 
+    struct ToolWindowPosition
+    {
+        bool saved = false;
+        int x = 0;
+        int y = 0;
+    };
+
     struct WindowSettings
     {
         std::string title = "XLaunch";
@@ -57,6 +64,8 @@ namespace xlaunch
         int customY = 100;
         int width = 760;
         int height = 500;
+        ToolWindowPosition settingsPosition;
+        ToolWindowPosition itemEditorPosition;
     };
 
     enum class HotkeyTrigger

@@ -75,18 +75,23 @@ namespace xlaunch
         if (openRequested_)
         {
             strncpy_s(titleBuffer_.data(), titleBuffer_.size(), config.window.title.c_str(), _TRUNCATE);
-            ImGui::OpenPopup("设置");
             openRequested_ = false;
         }
+        if (!open_)
+            return actions;
 
-        ImGui::SetNextWindowSize(ImVec2(650.0f, 0.0f), ImGuiCond_Appearing);
-        if (!ImGui::BeginPopupModal("设置", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize))
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(viewport->WorkPos);
+        ImGui::SetNextWindowSize(viewport->WorkSize);
+        if (!ImGui::Begin("设置###SettingsTool", &open_, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar))
         {
             if (capturingHotkey_)
             {
                 capturingHotkey_ = false;
                 actions.hotkeyChanged = true;
             }
+            ImGui::End();
             return actions;
         }
 
@@ -188,7 +193,7 @@ namespace xlaunch
                 actions.hotkeyChanged = true;
             }
             ImGui::SameLine();
-            constexpr const char* triggerNames[]{ "鼠标手势", "键盘快捷键" };
+            constexpr const char* triggerNames[]{ "鼠标按键", "键盘快捷键" };
             int trigger = static_cast<int>(config.hotkey.trigger);
             ImGui::SetNextItemWidth(120.0f);
             if (ImGui::Combo("##Trigger", &trigger, triggerNames, 2))
@@ -222,16 +227,21 @@ namespace xlaunch
             {
                 constexpr const char* mouseNames[]{ "无", "中键", "侧键 1", "侧键 2" };
                 int primary = static_cast<int>(config.hotkey.mouseButton);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted("按键");
+                ImGui::SameLine();
                 ImGui::SetNextItemWidth(92.0f);
-                if (ImGui::Combo("主键", &primary, mouseNames, 4))
+                if (ImGui::Combo("##MousePrimary", &primary, mouseNames, 4))
                 {
                     config.hotkey.mouseButton = static_cast<MouseButton>(primary);
                     changed = true; actions.hotkeyChanged = true;
                 }
                 ImGui::SameLine();
+                ImGui::TextUnformatted("组合键");
+                ImGui::SameLine();
                 int held = static_cast<int>(config.hotkey.heldMouseButton);
                 ImGui::SetNextItemWidth(92.0f);
-                if (ImGui::Combo("按住", &held, mouseNames, 4))
+                if (ImGui::Combo("##MouseHeld", &held, mouseNames, 4))
                 {
                     config.hotkey.heldMouseButton = static_cast<MouseButton>(held);
                     changed = true; actions.hotkeyChanged = true;
@@ -308,11 +318,11 @@ namespace xlaunch
                 capturingHotkey_ = false;
                 actions.hotkeyChanged = true;
             }
-            ImGui::CloseCurrentPopup();
+            open_ = false;
         }
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar();
-        ImGui::EndPopup();
+        ImGui::End();
         return actions;
     }
 }

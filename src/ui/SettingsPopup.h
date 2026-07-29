@@ -23,10 +23,13 @@ namespace xlaunch
     class SettingsPopup
     {
     public:
-        void Open() { openRequested_ = true; }
+        void Open() { open_ = true; openRequested_ = true; }
+        void Close() { open_ = false; capturingHotkey_ = false; }
+        [[nodiscard]] bool IsOpen() const { return open_; }
         [[nodiscard]] SettingsActions Draw(HWND owner, AppConfig& config, bool& changed);
 
     private:
+        bool open_ = false;
         bool openRequested_ = false;
         bool capturingHotkey_ = false;
         int captureStartFrame_ = 0;

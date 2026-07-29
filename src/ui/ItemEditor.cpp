@@ -85,6 +85,7 @@ namespace xlaunch
 
     void ItemEditor::OpenNew(std::size_t categoryIndex)
     {
+        open_ = true;
         editing_ = false;
         categoryIndex_ = categoryIndex;
         itemIndex_ = 0;
@@ -108,6 +109,7 @@ namespace xlaunch
     {
         if (categoryIndex >= config.categories.size() || itemIndex >= config.categories[categoryIndex].items.size())
             return;
+        open_ = true;
         editing_ = true;
         categoryIndex_ = categoryIndex;
         itemIndex_ = itemIndex;
@@ -170,13 +172,22 @@ namespace xlaunch
     {
         if (openRequested_)
         {
-            ImGui::OpenPopup(editing_ ? "编辑启动项目" : "新增启动项目");
             openRequested_ = false;
         }
+        if (!open_)
+            return;
 
         const char* title = editing_ ? "编辑启动项目" : "新增启动项目";
-        if (!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(viewport->WorkPos);
+        ImGui::SetNextWindowSize(viewport->WorkSize);
+        const std::string windowTitle = std::string(title) + "###ItemEditorTool";
+        if (!ImGui::Begin(windowTitle.c_str(), &open_, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar))
+        {
+            ImGui::End();
             return;
+        }
 
         DrawField("自定义名称", customName_.data(), customName_.size());
 
@@ -329,7 +340,7 @@ namespace xlaunch
                 {
                     changed = true;
                     saveImmediately = true;
-                    ImGui::CloseCurrentPopup();
+                    open_ = false;
                 }
             }
         }
@@ -337,9 +348,9 @@ namespace xlaunch
         if (ImGui::Button("取消", ImVec2(90.0f, 0.0f)))
         {
             capturingShortcut_ = 0;
-            ImGui::CloseCurrentPopup();
+            open_ = false;
         }
 
-        ImGui::EndPopup();
+        ImGui::End();
     }
 }

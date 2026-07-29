@@ -32,6 +32,8 @@
 #include "imgui_impl_dx11.h"
 #include "imgui_impl_win32.h"
 
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
+
 namespace
 {
     ID3D11Device* g_device = nullptr;
@@ -60,10 +62,14 @@ namespace
     bool g_trackingNonClientMouse = false;
     bool g_autoHideSuppressed = false;
     constexpr UINT_PTR kMouseLeaveHideTimerId = 0x584C;
+    constexpr UINT_PTR kDeferredHideTimerId = 0x584D;
+    bool g_deferredHideOutsideOnly = false;
 
     constexpr ImVec4 kClearColor{ 0.055f, 0.063f, 0.078f, 1.0f };
-    constexpr const char* kVersion = "v2026072902";
+    constexpr const char* kVersion = "v2026072907";
     std::wstring Utf8ToWide(const std::string& value);
+    void ApplyDarkTheme(float dpiScale);
+    LRESULT WINAPI ToolWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
 
     bool HasCommandLineArgument(const wchar_t* expected)
     {
@@ -184,10 +190,22 @@ namespace
     void HideMainWindow(HWND window)
     {
         KillTimer(window, kMouseLeaveHideTimerId);
+        KillTimer(window, kDeferredHideTimerId);
         g_trackingClientMouse = false;
         g_trackingNonClientMouse = false;
         ShowWindow(window, SW_HIDE);
         SetProcessWorkingSetSize(GetCurrentProcess(), static_cast<SIZE_T>(-1), static_cast<SIZE_T>(-1));
+    }
+
+    void RequestHideMainWindow(HWND window, bool outsideOnly)
+    {
+        // Never remove the HWND while processing the input event/frame that
+        // requested the hide. Finish/cancel any ImGui mouse interaction first,
+        // then hide from a later message-loop turn after all buttons are up.
+        g_deferredHideOutsideOnly = outsideOnly;
+        KillTimer(window, kMouseLeaveHideTimerId);
+        PostMessageW(window, WM_CANCELMODE, 0, 0);
+        SetTimer(window, kDeferredHideTimerId, 80, nullptr);
     }
 
     bool IsCursorOutsideWindow(HWND window)
@@ -195,6 +213,15 @@ namespace
         POINT cursor{};
         RECT bounds{};
         return GetCursorPos(&cursor) && GetWindowRect(window, &bounds) && !PtInRect(&bounds, cursor);
+    }
+
+    bool IsAnyMouseButtonDown()
+    {
+        return (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0 ||
+            (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0 ||
+            (GetAsyncKeyState(VK_MBUTTON) & 0x8000) != 0 ||
+            (GetAsyncKeyState(VK_XBUTTON1) & 0x8000) != 0 ||
+            (GetAsyncKeyState(VK_XBUTTON2) & 0x8000) != 0;
     }
 
     void TrackMouseLeave(HWND window, bool nonClient)
@@ -504,6 +531,255 @@ namespace
         return g_renderTargetView != nullptr;
     }
 
+    class ToolWindow
+    {
+    public:
+        bool Initialize(HINSTANCE instance, HWND owner, const wchar_t* title, int width, int height,
+            int minimumWidth, int minimumHeight, xlaunch::ToolWindowPosition* savedPosition)
+        {
+            owner_ = owner;
+            savedPosition_ = savedPosition;
+            minimumWidth_ = minimumWidth;
+            minimumHeight_ = minimumHeight;
+            static bool windowClassRegistered = false;
+            if (!windowClassRegistered)
+            {
+                const WNDCLASSEXW windowClass{
+                    sizeof(WNDCLASSEXW), CS_CLASSDC, ToolWndProc, 0, 0, instance,
+                    LoadIconW(instance, MAKEINTRESOURCEW(IDI_XLAUNCH)), LoadCursorW(nullptr, IDC_ARROW),
+                    nullptr, nullptr, L"XLaunchToolWindowClass", LoadIconW(instance, MAKEINTRESOURCEW(IDI_SMALL))
+                };
+                if (RegisterClassExW(&windowClass) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+                    return false;
+                windowClassRegistered = true;
+            }
+
+            window_ = CreateWindowExW(WS_EX_TOOLWINDOW, L"XLaunchToolWindowClass", title,
+                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX,
+                CW_USEDEFAULT, CW_USEDEFAULT, width, height, owner, nullptr, instance, this);
+            if (window_ == nullptr)
+                return false;
+
+            IDXGIDevice* dxgiDevice = nullptr;
+            IDXGIAdapter* adapter = nullptr;
+            IDXGIFactory* factory = nullptr;
+            HRESULT result = g_device->QueryInterface(IID_PPV_ARGS(&dxgiDevice));
+            if (SUCCEEDED(result)) result = dxgiDevice->GetAdapter(&adapter);
+            if (SUCCEEDED(result)) result = adapter->GetParent(IID_PPV_ARGS(&factory));
+            if (SUCCEEDED(result))
+            {
+                DXGI_SWAP_CHAIN_DESC description{};
+                description.BufferCount = 2;
+                description.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+                description.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+                description.OutputWindow = window_;
+                description.SampleDesc.Count = 1;
+                description.Windowed = TRUE;
+                description.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+                result = factory->CreateSwapChain(g_device, &description, &swapChain_);
+            }
+            if (factory != nullptr) factory->Release();
+            if (adapter != nullptr) adapter->Release();
+            if (dxgiDevice != nullptr) dxgiDevice->Release();
+            if (FAILED(result) || !CreateRenderTarget())
+                return false;
+
+            ImGuiContext* previous = ImGui::GetCurrentContext();
+            context_ = ImGui::CreateContext();
+            ImGui::SetCurrentContext(context_);
+            ImGuiIO& io = ImGui::GetIO();
+            io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+            io.IniFilename = nullptr;
+            const float scale = ImGui_ImplWin32_GetDpiScaleForHwnd(window_);
+            ApplyDarkTheme(scale);
+            ImFont* font = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\msyh.ttc", 15.0f, nullptr,
+                io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
+            if (font == nullptr) io.Fonts->AddFontDefault();
+            ImGui_ImplWin32_Init(window_);
+            ImGui_ImplDX11_Init(g_device, g_deviceContext);
+            ImGui::SetCurrentContext(previous);
+            return true;
+        }
+
+        void Shutdown()
+        {
+            if (context_ != nullptr)
+            {
+                ImGuiContext* previous = ImGui::GetCurrentContext();
+                ImGui::SetCurrentContext(context_);
+                ImGui_ImplDX11_Shutdown();
+                ImGui_ImplWin32_Shutdown();
+                ImGui::DestroyContext(context_);
+                context_ = nullptr;
+                ImGui::SetCurrentContext(previous);
+            }
+            CleanupRenderTarget();
+            if (swapChain_ != nullptr) { swapChain_->Release(); swapChain_ = nullptr; }
+            if (window_ != nullptr) { DestroyWindow(window_); window_ = nullptr; }
+        }
+
+        void Show()
+        {
+            if (visible_ || window_ == nullptr) return;
+            visible_ = true;
+            RECT bounds{};
+            GetWindowRect(window_, &bounds);
+            RECT ownerBounds{};
+            GetWindowRect(owner_, &ownerBounds);
+            HMONITOR monitor = savedPosition_ != nullptr && savedPosition_->saved
+                ? MonitorFromPoint(POINT{ savedPosition_->x, savedPosition_->y }, MONITOR_DEFAULTTONEAREST)
+                : MonitorFromWindow(owner_, MONITOR_DEFAULTTONEAREST);
+            MONITORINFO info{ sizeof(info) };
+            GetMonitorInfoW(monitor, &info);
+            const int width = bounds.right - bounds.left;
+            const int height = bounds.bottom - bounds.top;
+            int x = 0;
+            int y = 0;
+            if (savedPosition_ != nullptr && savedPosition_->saved)
+            {
+                x = savedPosition_->x;
+                y = savedPosition_->y;
+            }
+            else
+            {
+                constexpr int gap = 12;
+                const int leftSpace = ownerBounds.left - info.rcWork.left;
+                const int rightSpace = info.rcWork.right - ownerBounds.right;
+                x = rightSpace >= leftSpace ? ownerBounds.right + gap : ownerBounds.left - width - gap;
+                y = ownerBounds.top;
+            }
+            x = std::clamp(x, static_cast<int>(info.rcWork.left), static_cast<int>(info.rcWork.right) - width);
+            y = std::clamp(y, static_cast<int>(info.rcWork.top), static_cast<int>(info.rcWork.bottom) - height);
+            SetWindowPos(window_, HWND_TOP, x, y, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
+            SetForegroundWindow(window_);
+        }
+
+        void Hide() { visible_ = false; if (window_ != nullptr) ShowWindow(window_, SW_HIDE); }
+        [[nodiscard]] bool IsVisible() const { return visible_; }
+        [[nodiscard]] HWND Handle() const { return window_; }
+        [[nodiscard]] bool ConsumePositionChanged()
+        {
+            const bool changed = positionChanged_;
+            positionChanged_ = false;
+            return changed;
+        }
+
+        template <typename DrawFunction>
+        void Render(DrawFunction&& draw)
+        {
+            if (!visible_ || IsIconic(window_) || context_ == nullptr) return;
+            if (pendingWidth_ != 0 && pendingHeight_ != 0)
+            {
+                CleanupRenderTarget();
+                swapChain_->ResizeBuffers(0, pendingWidth_, pendingHeight_, DXGI_FORMAT_UNKNOWN, 0);
+                pendingWidth_ = pendingHeight_ = 0;
+                CreateRenderTarget();
+            }
+            ImGuiContext* previous = ImGui::GetCurrentContext();
+            ImGui::SetCurrentContext(context_);
+            ImGui_ImplDX11_NewFrame();
+            ImGui_ImplWin32_NewFrame();
+            ImGui::NewFrame();
+            draw();
+            ImGui::Render();
+            const float clearColor[4]{ kClearColor.x, kClearColor.y, kClearColor.z, kClearColor.w };
+            g_deviceContext->OMSetRenderTargets(1, &renderTarget_, nullptr);
+            g_deviceContext->ClearRenderTargetView(renderTarget_, clearColor);
+            ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+            swapChain_->Present(1, 0);
+            ImGui::SetCurrentContext(previous);
+        }
+
+        [[nodiscard]] bool ConsumeCloseRequested()
+        {
+            const bool requested = closeRequested_;
+            closeRequested_ = false;
+            return requested;
+        }
+
+        LRESULT HandleMessage(HWND messageWindow, UINT message, WPARAM wParam, LPARAM lParam)
+        {
+            ImGuiContext* previous = ImGui::GetCurrentContext();
+            if (context_ != nullptr) ImGui::SetCurrentContext(context_);
+            const bool handled = context_ != nullptr && ImGui_ImplWin32_WndProcHandler(messageWindow, message, wParam, lParam);
+            ImGui::SetCurrentContext(previous);
+            if (handled) return TRUE;
+            if (message == WM_SIZE && wParam != SIZE_MINIMIZED)
+            {
+                pendingWidth_ = LOWORD(lParam);
+                pendingHeight_ = HIWORD(lParam);
+                return 0;
+            }
+            if (message == WM_GETMINMAXINFO)
+            {
+                auto* info = reinterpret_cast<MINMAXINFO*>(lParam);
+                info->ptMinTrackSize = POINT{ minimumWidth_, minimumHeight_ };
+                return 0;
+            }
+            if (message == WM_EXITSIZEMOVE && savedPosition_ != nullptr)
+            {
+                RECT bounds{};
+                if (GetWindowRect(messageWindow, &bounds))
+                {
+                    savedPosition_->saved = true;
+                    savedPosition_->x = bounds.left;
+                    savedPosition_->y = bounds.top;
+                    positionChanged_ = true;
+                }
+                return 0;
+            }
+            if (message == WM_CLOSE)
+            {
+                closeRequested_ = true;
+                Hide();
+                return 0;
+            }
+            // During WM_NCCREATE, CreateWindowExW has not returned yet, so the
+            // member handle is not assigned. Always use the handle supplied by
+            // the window procedure for default processing.
+            return DefWindowProcW(messageWindow, message, wParam, lParam);
+        }
+
+    private:
+        bool CreateRenderTarget()
+        {
+            ID3D11Texture2D* buffer = nullptr;
+            if (FAILED(swapChain_->GetBuffer(0, IID_PPV_ARGS(&buffer)))) return false;
+            const HRESULT result = g_device->CreateRenderTargetView(buffer, nullptr, &renderTarget_);
+            buffer->Release();
+            return SUCCEEDED(result);
+        }
+        void CleanupRenderTarget()
+        {
+            if (renderTarget_ != nullptr) { renderTarget_->Release(); renderTarget_ = nullptr; }
+        }
+
+        HWND window_ = nullptr;
+        HWND owner_ = nullptr;
+        xlaunch::ToolWindowPosition* savedPosition_ = nullptr;
+        ImGuiContext* context_ = nullptr;
+        IDXGISwapChain* swapChain_ = nullptr;
+        ID3D11RenderTargetView* renderTarget_ = nullptr;
+        UINT pendingWidth_ = 0;
+        UINT pendingHeight_ = 0;
+        bool visible_ = false;
+        bool closeRequested_ = false;
+        bool positionChanged_ = false;
+        int minimumWidth_ = 620;
+        int minimumHeight_ = 420;
+    };
+
+    LRESULT WINAPI ToolWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+    {
+        ToolWindow* tool = reinterpret_cast<ToolWindow*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+        if (message == WM_NCCREATE)
+        {
+            tool = static_cast<ToolWindow*>(reinterpret_cast<CREATESTRUCTW*>(lParam)->lpCreateParams);
+            SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(tool));
+        }
+        return tool != nullptr ? tool->HandleMessage(window, message, wParam, lParam) : DefWindowProcW(window, message, wParam, lParam);
+    }
+
     void CleanupDeviceD3D()
     {
         CleanupRenderTarget();
@@ -540,9 +816,7 @@ namespace
             : MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
         MONITORINFO monitorInfo{ sizeof(MONITORINFO) };
         GetMonitorInfoW(monitor, &monitorInfo);
-        const RECT& work = settings.startupPosition == xlaunch::StartupPositionMode::Cursor
-            ? monitorInfo.rcMonitor
-            : monitorInfo.rcWork;
+        const RECT& work = monitorInfo.rcWork;
 
         LONG x = settings.customX;
         LONG y = settings.customY;
@@ -562,14 +836,8 @@ namespace
         }
         else if (settings.startupPosition == xlaunch::StartupPositionMode::Cursor)
         {
-            // Put the pointer over the first row of launch items, so the next
-            // action can be a direct click instead of moving across the window.
-            const LONG firstCellCenterX = static_cast<LONG>(48.0f * g_dpiScale);
-            const LONG firstCellCenterY = static_cast<LONG>((72.0f + config.appearance.iconSize * 0.5f) * g_dpiScale);
-            const bool openLeft = cursor.x + (width - firstCellCenterX) > work.right;
-            const bool openUp = cursor.y + (height - firstCellCenterY) > work.bottom;
-            x = openLeft ? cursor.x - (width - firstCellCenterX) : cursor.x - firstCellCenterX;
-            y = openUp ? cursor.y - (height - firstCellCenterY) : cursor.y - firstCellCenterY;
+            x = cursor.x - width / 2;
+            y = cursor.y - height / 2;
         }
 
         x = (std::max)(work.left, (std::min)(x, work.right - width));
@@ -825,19 +1093,19 @@ namespace
                 ImGui::SetTooltip("%s", item.DisplayName().c_str());
 
             if (clicked && ImGui::GetDragDropPayload() == nullptr && ShowOperationResult(state, xlaunch::Launch(item), "启动") && !state.config.window.keepVisible)
-                HideMainWindow(owner);
+                RequestHideMainWindow(owner, false);
 
             if (ImGui::BeginPopupContextItem("ItemMenu"))
             {
                 if (ImGui::MenuItem("启动"))
                 {
                     if (ShowOperationResult(state, xlaunch::Launch(item), "启动") && !state.config.window.keepVisible)
-                        HideMainWindow(owner);
+                        RequestHideMainWindow(owner, false);
                 }
                 if (ImGui::MenuItem("以管理员身份运行"))
                 {
                     if (ShowOperationResult(state, xlaunch::Launch(item, true), "以管理员身份运行") && !state.config.window.keepVisible)
-                        HideMainWindow(owner);
+                        RequestHideMainWindow(owner, false);
                 }
                 if (ImGui::MenuItem("打开所在位置"))
                     ShowOperationResult(state, xlaunch::OpenContainingLocation(item), "打开所在位置");
@@ -877,6 +1145,44 @@ namespace
         {
             if (ImGui::MenuItem("新增启动项目"))
                 state.itemEditor.OpenNew(state.selectedCategory);
+            if (ImGui::BeginMenu("添加系统图标"))
+            {
+                struct SystemShellItem
+                {
+                    const char* name;
+                    const char* target;
+                };
+                constexpr SystemShellItem systemItems[]{
+                    { "此电脑", "shell:::{20D04FE0-3AEA-1069-A2D8-08002B30309D}" },
+                    { "回收站", "shell:::{645FF040-5081-101B-9F08-00AA002F954E}" },
+                    { "控制面板", "shell:::{26EE0668-A00A-44D7-9371-BEB064C98683}" },
+                    { "网络", "shell:::{F02C1A0D-BE21-4350-88B0-7367FC96EF3C}" },
+                    { "用户文件", "shell:::{59031A47-3F72-44A7-89C5-5595FE6B30EE}" },
+                    { "库", "shell:::{031E4825-7B94-4DC3-B131-E946B44C8DD5}" },
+                };
+                for (const SystemShellItem& systemItem : systemItems)
+                {
+                    if (!ImGui::MenuItem(systemItem.name))
+                        continue;
+                    xlaunch::LaunchItem item;
+                    item.id = xlaunch::MakeId("item");
+                    item.type = xlaunch::ItemType::Shell;
+                    item.target = systemItem.target;
+                    item.automaticName = systemItem.name;
+                    const bool duplicate = std::any_of(category.items.begin(), category.items.end(),
+                        [&](const xlaunch::LaunchItem& existing) { return SameTarget(existing, item); });
+                    if (duplicate)
+                        state.ShowError(std::string("“") + systemItem.name + "”已经在当前分类中。");
+                    else
+                    {
+                        item.sortOrder = static_cast<int>(category.items.size());
+                        category.items.push_back(std::move(item));
+                        changed = true;
+                        saveImmediately = true;
+                    }
+                }
+                ImGui::EndMenu();
+            }
             if (ImGui::MenuItem("新增分类"))
                 state.categoryManager.OpenAdd();
             if (ImGui::MenuItem("打开设置"))
@@ -1035,7 +1341,7 @@ namespace
             }
         }
         ImGui::SameLine();
-        if (ImGui::Button(state.config.window.keepVisible ? "已固定##Pin" : "固定##Pin", ImVec2(56.0f * g_dpiScale, 29.0f * g_dpiScale)))
+        if (ImGui::Button(state.config.window.keepVisible ? "已钉住##Pin" : "钉住##Pin", ImVec2(56.0f * g_dpiScale, 29.0f * g_dpiScale)))
         {
             state.config.window.keepVisible = !state.config.window.keepVisible;
             SetWindowPos(owner, state.config.window.keepVisible ? HWND_TOPMOST : HWND_NOTOPMOST,
@@ -1050,24 +1356,10 @@ namespace
         DrawIconGrid(owner, state, changed, saveImmediately);
         ImGui::End();
 
-        state.itemEditor.Draw(owner, state.config, state.iconCache, changed, saveImmediately);
-        const bool capturingItemShortcut = state.itemEditor.IsCapturingShortcut();
-        if (capturingItemShortcut != state.itemShortcutCaptureActive)
-        {
-            state.itemShortcutCaptureActive = capturingItemShortcut;
-            if (capturingItemShortcut)
-                state.hotkeyManager.Stop();
-            else
-            {
-                state.ApplyHotkey(owner);
-                state.ApplyItemHotkeys(owner);
-            }
-        }
-        const xlaunch::SettingsActions settingsActions = state.settingsPopup.Draw(owner, state.config, changed);
         DrawDuplicatePopup(state);
         DrawErrorPopup(state);
-        g_autoHideSuppressed = ImGui::IsPopupOpen(nullptr,
-            ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+        g_autoHideSuppressed = state.itemEditor.IsOpen() || state.settingsPopup.IsOpen() ||
+            ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
         if (changed)
             state.MarkDirty();
         if (saveImmediately)
@@ -1077,11 +1369,8 @@ namespace
         }
         else
             state.SaveIfDue();
-        state.HandleSettingsActions(owner, settingsActions);
     }
 }
-
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
 LRESULT WINAPI WndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
@@ -1153,21 +1442,37 @@ LRESULT WINAPI WndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
         }
         return 0;
     case WM_TIMER:
+        if (wParam == kDeferredHideTimerId)
+        {
+            KillTimer(window, kDeferredHideTimerId);
+            if (g_autoHideSuppressed || IsAnyMouseButtonDown())
+                SetTimer(window, kDeferredHideTimerId, 80, nullptr);
+            else if (GetCapture() == window)
+            {
+                ReleaseCapture();
+                PostMessageW(window, WM_CANCELMODE, 0, 0);
+                SetTimer(window, kDeferredHideTimerId, 80, nullptr);
+            }
+            else if (!g_deferredHideOutsideOnly || IsCursorOutsideWindow(window))
+                HideMainWindow(window);
+            return 0;
+        }
         if (wParam == kMouseLeaveHideTimerId)
         {
             KillTimer(window, kMouseLeaveHideTimerId);
-            if (g_autoHideSuppressed)
+            if (g_autoHideSuppressed || IsAnyMouseButtonDown())
                 SetTimer(window, kMouseLeaveHideTimerId, 100, nullptr);
             else if (g_keepVisible != nullptr && !*g_keepVisible && IsWindowVisible(window) && IsCursorOutsideWindow(window))
-                HideMainWindow(window);
+                RequestHideMainWindow(window, true);
             return 0;
         }
         break;
     case xlaunch::kToggleWindowMessage:
         if (IsWindowVisible(window) && !IsIconic(window) && GetForegroundWindow() == window)
-            HideMainWindow(window);
+            RequestHideMainWindow(window, false);
         else
         {
+            KillTimer(window, kDeferredHideTimerId);
             if (g_appConfig != nullptr && g_appConfig->window.startupPosition == xlaunch::StartupPositionMode::Cursor)
                 ApplyStartupPosition(window, *g_appConfig);
             ShowWindow(window, SW_RESTORE);
@@ -1178,6 +1483,7 @@ LRESULT WINAPI WndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
         }
         return 0;
     case xlaunch::kShowWindowMessage:
+        KillTimer(window, kDeferredHideTimerId);
         if (g_appConfig != nullptr && g_appConfig->window.startupPosition == xlaunch::StartupPositionMode::Cursor)
             ApplyStartupPosition(window, *g_appConfig);
         ShowWindow(window, SW_RESTORE);
@@ -1384,6 +1690,18 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
     g_trayIcon = &trayIcon;
     if (!trayIcon.Add(window, LoadIconW(instance, MAKEINTRESOURCEW(IDI_XLAUNCH)), applicationTitle.c_str()))
         state.ShowError("创建系统托盘图标失败。");
+    ToolWindow settingsWindow;
+    ToolWindow itemEditorWindow;
+    const bool settingsWindowReady = settingsWindow.Initialize(instance, window, L"XLaunch 设置",
+        static_cast<int>(720.0f * dpiScale), static_cast<int>(370.0f * dpiScale),
+        static_cast<int>(680.0f * dpiScale), static_cast<int>(350.0f * dpiScale),
+        &state.config.window.settingsPosition);
+    const bool itemEditorWindowReady = itemEditorWindow.Initialize(instance, window, L"XLaunch 启动项编辑",
+        static_cast<int>(760.0f * dpiScale), static_cast<int>(500.0f * dpiScale),
+        static_cast<int>(620.0f * dpiScale), static_cast<int>(420.0f * dpiScale),
+        &state.config.window.itemEditorPosition);
+    if (!settingsWindowReady || !itemEditorWindowReady)
+        state.ShowError("创建独立设置或编辑窗口失败。");
     if (!launchedAtStartup)
     {
         ShowWindow(window, showCommand);
@@ -1409,6 +1727,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
         state.ShowError("初始化 Windows OLE 拖放失败，错误代码：" + std::to_string(oleResult));
     }
     bool running = true;
+    bool hasRenderedFrame = false;
     while (running)
     {
         MSG message{};
@@ -1421,12 +1740,33 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
         }
         if (!running)
             break;
-        if (!IsWindowVisible(window))
+        // Render one frame while a startup-launched window is still hidden. This
+        // primes the swap chain so the first hotkey invocation cannot expose an
+        // unpainted transparent window while DirectX/ImGui produce their first frame.
+        if (settingsWindow.ConsumeCloseRequested())
+        {
+            state.settingsPopup.Close();
+            state.ApplyHotkey(window);
+            state.ApplyItemHotkeys(window);
+        }
+        if (itemEditorWindow.ConsumeCloseRequested()) state.itemEditor.Close();
+        if (settingsWindow.ConsumePositionChanged() || itemEditorWindow.ConsumePositionChanged())
+        {
+            state.MarkDirty();
+            state.SaveNow();
+        }
+        if (state.settingsPopup.IsOpen() && settingsWindowReady) settingsWindow.Show();
+        else if (settingsWindow.IsVisible()) settingsWindow.Hide();
+        if (state.itemEditor.IsOpen() && itemEditorWindowReady) itemEditorWindow.Show();
+        else if (itemEditorWindow.IsVisible()) itemEditorWindow.Hide();
+
+        if (!IsWindowVisible(window) && !settingsWindow.IsVisible() && !itemEditorWindow.IsVisible() && hasRenderedFrame)
         {
             WaitMessage();
             continue;
         }
-        if (g_swapChainOccluded && g_swapChain->Present(0, DXGI_PRESENT_TEST) == DXGI_STATUS_OCCLUDED)
+        if (!settingsWindow.IsVisible() && !itemEditorWindow.IsVisible() && g_swapChainOccluded &&
+            g_swapChain->Present(0, DXGI_PRESENT_TEST) == DXGI_STATUS_OCCLUDED)
         {
             Sleep(10);
             continue;
@@ -1450,7 +1790,43 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
         g_deviceContext->ClearRenderTargetView(g_renderTargetView, clearColor);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
         const HRESULT presentResult = g_swapChain->Present(1, 0);
+        hasRenderedFrame = true;
         g_swapChainOccluded = presentResult == DXGI_STATUS_OCCLUDED;
+
+        bool toolChanged = false;
+        bool toolSaveImmediately = false;
+        itemEditorWindow.Render([&]
+        {
+            state.itemEditor.Draw(itemEditorWindow.Handle(), state.config, state.iconCache, toolChanged, toolSaveImmediately);
+        });
+        xlaunch::SettingsActions settingsActions;
+        settingsWindow.Render([&]
+        {
+            // Settings such as "use current position" describe the launcher,
+            // not the separate settings tool window.
+            settingsActions = state.settingsPopup.Draw(window, state.config, toolChanged);
+        });
+        if (!state.itemEditor.IsOpen()) itemEditorWindow.Hide();
+        if (!state.settingsPopup.IsOpen()) settingsWindow.Hide();
+        const bool capturingItemShortcut = state.itemEditor.IsCapturingShortcut();
+        if (capturingItemShortcut != state.itemShortcutCaptureActive)
+        {
+            state.itemShortcutCaptureActive = capturingItemShortcut;
+            if (capturingItemShortcut)
+                state.hotkeyManager.Stop();
+            else
+            {
+                state.ApplyHotkey(window);
+                state.ApplyItemHotkeys(window);
+            }
+        }
+        if (toolChanged) state.MarkDirty();
+        if (toolSaveImmediately)
+        {
+            state.SaveNow();
+            state.ApplyItemHotkeys(window);
+        }
+        state.HandleSettingsActions(window, settingsActions);
         if (g_fitWidthAfterNextFrame || g_fitHeightAfterNextFrame)
         {
             const bool fitWidth = g_fitWidthAfterNextFrame;
@@ -1475,6 +1851,8 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
     }
 
     state.SaveNow();
+    itemEditorWindow.Shutdown();
+    settingsWindow.Shutdown();
     trayIcon.Remove();
     g_trayIcon = nullptr;
     g_appConfig = nullptr;

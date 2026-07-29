@@ -38,6 +38,7 @@ namespace xlaunch
         bool middleDown_ = false;
         bool x1Down_ = false;
         bool x2Down_ = false;
+        bool primaryGesturePending_ = false;
         ULONGLONG lastPrimaryClick_ = 0;
         std::thread mouseThread_;
         DWORD mouseThreadId_ = 0;

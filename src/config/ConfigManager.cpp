@@ -264,6 +264,18 @@ namespace xlaunch
                 config.window.customY = window->value("customY", 100);
                 config.window.width = window->value("width", 760);
                 config.window.height = window->value("height", 500);
+                if (const auto position = window->find("settingsPosition"); position != window->end() && position->is_object())
+                {
+                    config.window.settingsPosition.saved = position->value("saved", false);
+                    config.window.settingsPosition.x = position->value("x", 0);
+                    config.window.settingsPosition.y = position->value("y", 0);
+                }
+                if (const auto position = window->find("itemEditorPosition"); position != window->end() && position->is_object())
+                {
+                    config.window.itemEditorPosition.saved = position->value("saved", false);
+                    config.window.itemEditorPosition.x = position->value("x", 0);
+                    config.window.itemEditorPosition.y = position->value("y", 0);
+                }
             }
 
             if (const auto hotkey = root.find("hotkey"); hotkey != root.end() && hotkey->is_object())
@@ -365,7 +377,17 @@ namespace xlaunch
                 { "customX", config.window.customX },
                 { "customY", config.window.customY },
                 { "width", config.window.width },
-                { "height", config.window.height }
+                { "height", config.window.height },
+                { "settingsPosition", {
+                    { "saved", config.window.settingsPosition.saved },
+                    { "x", config.window.settingsPosition.x },
+                    { "y", config.window.settingsPosition.y }
+                } },
+                { "itemEditorPosition", {
+                    { "saved", config.window.itemEditorPosition.saved },
+                    { "x", config.window.itemEditorPosition.x },
+                    { "y", config.window.itemEditorPosition.y }
+                } }
             };
             root["hotkey"] = {
                 { "enabled", config.hotkey.enabled },

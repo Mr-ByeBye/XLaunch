@@ -139,6 +139,11 @@ namespace xlaunch
             mouseThread_.join();
         }
         mouseThreadId_ = 0;
+        middleDown_ = false;
+        x1Down_ = false;
+        x2Down_ = false;
+        primaryGesturePending_ = false;
+        lastPrimaryClick_ = 0;
     }
 
     void HotkeyManager::StopItems()
@@ -186,23 +191,36 @@ namespace xlaunch
 
             if (button != MouseButton::None)
             {
+                bool consume = false;
                 if (down)
                 {
                     const bool heldSatisfied = manager->settings_.heldMouseButton == MouseButton::None ||
                         (manager->settings_.heldMouseButton != button && isDown(manager->settings_.heldMouseButton));
                     if (button == manager->settings_.mouseButton && heldSatisfied)
                     {
-                        bool trigger = !manager->settings_.mouseDoubleClick;
-                        if (manager->settings_.mouseDoubleClick)
-                        {
-                            const ULONGLONG now = GetTickCount64();
-                            trigger = manager->lastPrimaryClick_ != 0 && now - manager->lastPrimaryClick_ <= GetDoubleClickTime();
-                            manager->lastPrimaryClick_ = trigger ? 0 : now;
-                        }
-                        if (trigger) PostMessageW(manager->window_, kToggleWindowMessage, 0, 0);
+                        // A global mouse gesture owns the complete click. Do not
+                        // forward only its down half to the window underneath and
+                        // then show XLaunch before that window receives the up.
+                        manager->primaryGesturePending_ = true;
+                        consume = true;
                     }
                 }
+                else if (button == manager->settings_.mouseButton && manager->primaryGesturePending_)
+                {
+                    manager->primaryGesturePending_ = false;
+                    bool trigger = !manager->settings_.mouseDoubleClick;
+                    if (manager->settings_.mouseDoubleClick)
+                    {
+                        const ULONGLONG now = GetTickCount64();
+                        trigger = manager->lastPrimaryClick_ != 0 && now - manager->lastPrimaryClick_ <= GetDoubleClickTime();
+                        manager->lastPrimaryClick_ = trigger ? 0 : now;
+                    }
+                    if (trigger) PostMessageW(manager->window_, kToggleWindowMessage, 0, 0);
+                    consume = true;
+                }
                 setDown(button, down);
+                if (consume)
+                    return 1;
             }
         }
         return CallNextHookEx(nullptr, code, wParam, lParam);
