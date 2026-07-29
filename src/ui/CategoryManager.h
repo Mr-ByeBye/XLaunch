@@ -42,6 +42,8 @@ namespace xlaunch
         int deleteIndex_ = -1;
         int moveDestination_ = -1;
         bool focusRenameInput_ = false;
+        int hoveredCategory_ = -1;
+        double hoverStartTime_ = 0.0;
         std::array<char, 128> nameBuffer_{};
         std::string validationError_;
         std::vector<RECT> categoryRects_;

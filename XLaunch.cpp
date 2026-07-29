@@ -66,7 +66,7 @@ namespace
     bool g_deferredHideOutsideOnly = false;
 
     constexpr ImVec4 kClearColor{ 0.055f, 0.063f, 0.078f, 1.0f };
-    constexpr const char* kVersion = "v2026072907";
+    constexpr const char* kVersion = "v2026072911";
     std::wstring Utf8ToWide(const std::string& value);
     void ApplyDarkTheme(float dpiScale);
     LRESULT WINAPI ToolWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -1361,7 +1361,10 @@ namespace
         g_autoHideSuppressed = state.itemEditor.IsOpen() || state.settingsPopup.IsOpen() ||
             ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
         if (changed)
+        {
             state.MarkDirty();
+            state.iconCache.Prefetch(state.config, state.config.appearance.iconSize);
+        }
         if (saveImmediately)
         {
             state.SaveNow();
@@ -1668,6 +1671,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
     const HRESULT oleResult = OleInitialize(nullptr);
     const bool oleInitialized = SUCCEEDED(oleResult);
     AppState state(g_device);
+    state.iconCache.Prefetch(state.config, state.config.appearance.iconSize);
     g_appConfig = &state.config;
     g_keepVisible = &state.config.window.keepVisible;
     g_hotkeyManager = &state.hotkeyManager;
@@ -1693,8 +1697,8 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
     ToolWindow settingsWindow;
     ToolWindow itemEditorWindow;
     const bool settingsWindowReady = settingsWindow.Initialize(instance, window, L"XLaunch 设置",
-        static_cast<int>(720.0f * dpiScale), static_cast<int>(370.0f * dpiScale),
-        static_cast<int>(680.0f * dpiScale), static_cast<int>(350.0f * dpiScale),
+        static_cast<int>(660.0f * dpiScale), static_cast<int>(410.0f * dpiScale),
+        static_cast<int>(600.0f * dpiScale), static_cast<int>(380.0f * dpiScale),
         &state.config.window.settingsPosition);
     const bool itemEditorWindowReady = itemEditorWindow.Initialize(instance, window, L"XLaunch 启动项编辑",
         static_cast<int>(760.0f * dpiScale), static_cast<int>(500.0f * dpiScale),
@@ -1820,7 +1824,11 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
                 state.ApplyItemHotkeys(window);
             }
         }
-        if (toolChanged) state.MarkDirty();
+        if (toolChanged)
+        {
+            state.MarkDirty();
+            state.iconCache.Prefetch(state.config, state.config.appearance.iconSize);
+        }
         if (toolSaveImmediately)
         {
             state.SaveNow();

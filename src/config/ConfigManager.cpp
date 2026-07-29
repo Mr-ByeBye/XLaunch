@@ -251,6 +251,9 @@ namespace xlaunch
                 config.appearance.verticalSpacing = appearance->value("verticalSpacing", 12.0f);
                 config.appearance.windowOpacity = appearance->value("windowOpacity", 1.0f);
                 config.appearance.fitWindowToGridAfterResize = appearance->value("fitWindowToGridAfterResize", true);
+                config.appearance.categorySwitchMode = appearance->value("categorySwitchMode", "click") == "hover"
+                    ? CategorySwitchMode::Hover : CategorySwitchMode::Click;
+                config.appearance.categoryHoverDelayMs = appearance->value("categoryHoverDelayMs", 250);
             }
 
             if (const auto window = root.find("window"); window != root.end() && window->is_object())
@@ -366,7 +369,9 @@ namespace xlaunch
                 { "horizontalSpacing", config.appearance.horizontalSpacing },
                 { "verticalSpacing", config.appearance.verticalSpacing },
                 { "windowOpacity", config.appearance.windowOpacity },
-                { "fitWindowToGridAfterResize", config.appearance.fitWindowToGridAfterResize }
+                { "fitWindowToGridAfterResize", config.appearance.fitWindowToGridAfterResize },
+                { "categorySwitchMode", config.appearance.categorySwitchMode == CategorySwitchMode::Hover ? "hover" : "click" },
+                { "categoryHoverDelayMs", config.appearance.categoryHoverDelayMs }
             };
             root["window"] = {
                 { "title", config.window.title },

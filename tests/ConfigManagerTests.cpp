@@ -69,6 +69,8 @@ int main()
     config.appearance.verticalSpacing = 20.0f;
     config.appearance.windowOpacity = 0.72f;
     config.appearance.fitWindowToGridAfterResize = true;
+    config.appearance.categorySwitchMode = xlaunch::CategorySwitchMode::Hover;
+    config.appearance.categoryHoverDelayMs = 420;
     config.window.startupPosition = xlaunch::StartupPositionMode::Custom;
     config.window.corner = xlaunch::ScreenCorner::BottomRight;
     config.window.customX = 321;
@@ -114,6 +116,8 @@ int main()
     success &= Check(loaded.config.appearance.iconSize == 64, "图标大小未保存");
     success &= Check(std::abs(loaded.config.appearance.windowOpacity - 0.72f) < 0.001f, "窗口透明度未保存");
     success &= Check(loaded.config.appearance.fitWindowToGridAfterResize, "自动贴合网格设置未保存");
+    success &= Check(loaded.config.appearance.categorySwitchMode == xlaunch::CategorySwitchMode::Hover &&
+        loaded.config.appearance.categoryHoverDelayMs == 420, "分类悬停切换设置未保存");
     success &= Check(loaded.config.window.startupPosition == xlaunch::StartupPositionMode::Custom, "启动位置模式未保存");
     success &= Check(loaded.config.window.corner == xlaunch::ScreenCorner::BottomRight, "屏幕角落未保存");
     success &= Check(loaded.config.window.customX == 321 && loaded.config.window.customY == 654, "自定义窗口位置未保存");

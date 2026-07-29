@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iterator>
 #include <vector>
 
 namespace xlaunch
@@ -11,6 +12,20 @@ namespace xlaunch
     IconCache::IconCache(ID3D11Device* device)
         : device_(device)
     {
+        worker_ = std::thread([this] { WorkerMain(); });
+    }
+
+    IconCache::~IconCache()
+    {
+        {
+            std::lock_guard lock(mutex_);
+            stopping_ = true;
+        }
+        condition_.notify_one();
+        if (worker_.joinable())
+            worker_.join();
+        for (auto& [id, result] : completed_)
+            if (result.icon != nullptr) DestroyIcon(result.icon);
     }
 
     std::string IconCache::MakeSignature(const LaunchItem& item, int pixelSize) const
@@ -91,21 +106,119 @@ namespace xlaunch
         if (existing != entries_.end() && existing->second.signature == signature)
             return { existing->second.texture.Get(), existing->second.fallback };
 
-        ShellIconResult shellIcon = LoadShellIcon(item, pixelSize);
+        LoadResult completed;
+        bool hasCompleted = false;
+        bool isQueued = false;
+        {
+            std::lock_guard lock(mutex_);
+            const auto found = completed_.find(item.id);
+            if (found != completed_.end() && found->second.signature == signature)
+            {
+                completed = std::move(found->second);
+                completed_.erase(found);
+                hasCompleted = true;
+            }
+            const auto queued = queuedSignatures_.find(item.id);
+            isQueued = queued != queuedSignatures_.end() && queued->second == signature;
+        }
+        if (!hasCompleted)
+        {
+            if (isQueued)
+                return {};
+            ShellIconResult shellIcon = LoadShellIcon(item, pixelSize);
+            Entry entry;
+            entry.signature = signature;
+            entry.fallback = shellIcon.usedFallback;
+            entry.texture = CreateTexture(shellIcon.icon, pixelSize);
+            if (shellIcon.icon != nullptr)
+                DestroyIcon(shellIcon.icon);
+            entries_[item.id] = std::move(entry);
+            const Entry& stored = entries_.at(item.id);
+            return { stored.texture.Get(), stored.fallback };
+        }
+
         Entry entry;
         entry.signature = signature;
-        entry.fallback = shellIcon.usedFallback;
-        entry.texture = CreateTexture(shellIcon.icon, pixelSize);
-        if (shellIcon.icon != nullptr)
-            DestroyIcon(shellIcon.icon);
+        entry.fallback = completed.fallback;
+        entry.texture = CreateTexture(completed.icon, pixelSize);
+        if (completed.icon != nullptr)
+            DestroyIcon(completed.icon);
         entries_[item.id] = std::move(entry);
         const Entry& stored = entries_.at(item.id);
         return { stored.texture.Get(), stored.fallback };
     }
 
+    void IconCache::Prefetch(const AppConfig& config, int pixelSize)
+    {
+        for (const Category& category : config.categories)
+            for (const LaunchItem& item : category.items)
+            {
+                const std::string signature = MakeSignature(item, pixelSize);
+                const auto existing = entries_.find(item.id);
+                if (existing == entries_.end() || existing->second.signature != signature)
+                    Queue(item, pixelSize, signature);
+            }
+    }
+
+    void IconCache::Queue(const LaunchItem& item, int pixelSize, const std::string& signature)
+    {
+        {
+            std::lock_guard lock(mutex_);
+            const auto queued = queuedSignatures_.find(item.id);
+            if (queued != queuedSignatures_.end() && queued->second == signature)
+                return;
+            const auto completed = completed_.find(item.id);
+            if (completed != completed_.end() && completed->second.signature == signature)
+                return;
+            queuedSignatures_[item.id] = signature;
+            requests_.push_back(LoadRequest{ item, pixelSize, signature });
+        }
+        condition_.notify_one();
+    }
+
+    void IconCache::WorkerMain()
+    {
+        const HRESULT comResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        for (;;)
+        {
+            LoadRequest request;
+            {
+                std::unique_lock lock(mutex_);
+                condition_.wait(lock, [&] { return stopping_ || !requests_.empty(); });
+                if (stopping_) break;
+                request = std::move(requests_.front());
+                requests_.pop_front();
+            }
+            ShellIconResult icon = LoadShellIcon(request.item, request.pixelSize);
+            std::lock_guard lock(mutex_);
+            const auto current = queuedSignatures_.find(request.item.id);
+            if (current != queuedSignatures_.end() && current->second == request.signature)
+            {
+                auto old = completed_.find(request.item.id);
+                if (old != completed_.end() && old->second.icon != nullptr)
+                    DestroyIcon(old->second.icon);
+                completed_[request.item.id] = LoadResult{
+                    request.item.id, request.signature, icon.icon, icon.usedFallback };
+                queuedSignatures_.erase(current);
+            }
+            else if (icon.icon != nullptr)
+                DestroyIcon(icon.icon);
+        }
+        if (SUCCEEDED(comResult))
+            CoUninitialize();
+    }
+
     void IconCache::Invalidate(const std::string& itemId)
     {
         entries_.erase(itemId);
+        std::lock_guard lock(mutex_);
+        queuedSignatures_.erase(itemId);
+        const auto completed = completed_.find(itemId);
+        if (completed != completed_.end())
+        {
+            if (completed->second.icon != nullptr) DestroyIcon(completed->second.icon);
+            completed_.erase(completed);
+        }
     }
 
     void IconCache::Prune(const std::unordered_set<std::string>& activeItemIds)
@@ -117,10 +230,29 @@ namespace xlaunch
             else
                 ++iterator;
         }
+        std::lock_guard lock(mutex_);
+        for (auto iterator = queuedSignatures_.begin(); iterator != queuedSignatures_.end();)
+            iterator = activeItemIds.contains(iterator->first) ? std::next(iterator) : queuedSignatures_.erase(iterator);
+        for (auto iterator = completed_.begin(); iterator != completed_.end();)
+        {
+            if (activeItemIds.contains(iterator->first))
+                ++iterator;
+            else
+            {
+                if (iterator->second.icon != nullptr) DestroyIcon(iterator->second.icon);
+                iterator = completed_.erase(iterator);
+            }
+        }
     }
 
     void IconCache::Clear()
     {
         entries_.clear();
+        std::lock_guard lock(mutex_);
+        requests_.clear();
+        queuedSignatures_.clear();
+        for (auto& [id, result] : completed_)
+            if (result.icon != nullptr) DestroyIcon(result.icon);
+        completed_.clear();
     }
 }

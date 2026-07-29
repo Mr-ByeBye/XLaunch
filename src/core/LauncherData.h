@@ -19,6 +19,12 @@ namespace xlaunch
         Shell
     };
 
+    enum class CategorySwitchMode
+    {
+        Click,
+        Hover
+    };
+
     struct AppearanceSettings
     {
         bool showNames = true;
@@ -28,6 +34,8 @@ namespace xlaunch
         float verticalSpacing = 12.0f;
         float windowOpacity = 1.0f;
         bool fitWindowToGridAfterResize = true;
+        CategorySwitchMode categorySwitchMode = CategorySwitchMode::Click;
+        int categoryHoverDelayMs = 250;
     };
 
     enum class StartupPositionMode
@@ -226,6 +234,7 @@ namespace xlaunch
         config.appearance.horizontalSpacing = std::clamp(config.appearance.horizontalSpacing, 4.0f, 40.0f);
         config.appearance.verticalSpacing = std::clamp(config.appearance.verticalSpacing, 4.0f, 40.0f);
         config.appearance.windowOpacity = std::clamp(config.appearance.windowOpacity, 0.35f, 1.0f);
+        config.appearance.categoryHoverDelayMs = std::clamp(config.appearance.categoryHoverDelayMs, 50, 2000);
         config.backup.keepCount = std::clamp(config.backup.keepCount, 1, 50);
         config.hotkey.modifiers &= HotkeyControl | HotkeyAlt | HotkeyShift | HotkeyWin;
         if (config.hotkey.virtualKey < 0x08 || config.hotkey.virtualKey > 0xFE)

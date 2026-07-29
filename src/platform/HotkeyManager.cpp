@@ -200,22 +200,24 @@ namespace xlaunch
                     {
                         // A global mouse gesture owns the complete click. Do not
                         // forward only its down half to the window underneath and
-                        // then show XLaunch before that window receives the up.
+                        // let XLaunch consume the corresponding release. Consume
+                        // both halves, while still showing immediately on down.
                         manager->primaryGesturePending_ = true;
+                        bool trigger = !manager->settings_.mouseDoubleClick;
+                        if (manager->settings_.mouseDoubleClick)
+                        {
+                            const ULONGLONG now = GetTickCount64();
+                            trigger = manager->lastPrimaryClick_ != 0 &&
+                                now - manager->lastPrimaryClick_ <= GetDoubleClickTime();
+                            manager->lastPrimaryClick_ = trigger ? 0 : now;
+                        }
+                        if (trigger) PostMessageW(manager->window_, kToggleWindowMessage, 0, 0);
                         consume = true;
                     }
                 }
                 else if (button == manager->settings_.mouseButton && manager->primaryGesturePending_)
                 {
                     manager->primaryGesturePending_ = false;
-                    bool trigger = !manager->settings_.mouseDoubleClick;
-                    if (manager->settings_.mouseDoubleClick)
-                    {
-                        const ULONGLONG now = GetTickCount64();
-                        trigger = manager->lastPrimaryClick_ != 0 && now - manager->lastPrimaryClick_ <= GetDoubleClickTime();
-                        manager->lastPrimaryClick_ = trigger ? 0 : now;
-                    }
-                    if (trigger) PostMessageW(manager->window_, kToggleWindowMessage, 0, 0);
                     consume = true;
                 }
                 setDown(button, down);

@@ -44,6 +44,7 @@ namespace xlaunch
     {
         int reorderSource = -1;
         int reorderTarget = -1;
+        bool hoveredAnyCategory = false;
         categoryRects_.clear();
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2.0f * dpiScale, 3.0f * dpiScale));
         constexpr ImGuiWindowFlags categoryBarFlags =
@@ -74,7 +75,22 @@ namespace xlaunch
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.22f, 0.42f, 0.76f, 1.0f));
             }
             const float buttonWidth = (std::max)(64.0f * dpiScale, ImGui::CalcTextSize(config.categories[index].name.c_str()).x + 22.0f * dpiScale);
-            if (ImGui::Button(config.categories[index].name.c_str(), ImVec2(buttonWidth, 29.0f * dpiScale)))
+            const bool clicked = ImGui::Button(config.categories[index].name.c_str(), ImVec2(buttonWidth, 29.0f * dpiScale));
+            const bool categoryHovered = ImGui::IsItemHovered();
+            hoveredAnyCategory |= categoryHovered;
+            bool hoveredSwitch = false;
+            if (config.appearance.categorySwitchMode == CategorySwitchMode::Hover && categoryHovered &&
+                !ImGui::IsAnyMouseDown() && ImGui::GetDragDropPayload() == nullptr)
+            {
+                if (hoveredCategory_ != static_cast<int>(index))
+                {
+                    hoveredCategory_ = static_cast<int>(index);
+                    hoverStartTime_ = ImGui::GetTime();
+                }
+                else
+                    hoveredSwitch = (ImGui::GetTime() - hoverStartTime_) * 1000.0 >= config.appearance.categoryHoverDelayMs;
+            }
+            if (clicked || hoveredSwitch)
                 selectedCategory = index;
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
             {
@@ -135,6 +151,13 @@ namespace xlaunch
                 ImGui::EndPopup();
             }
             ImGui::PopID();
+        }
+
+        if (config.appearance.categorySwitchMode != CategorySwitchMode::Hover || !hoveredAnyCategory ||
+            ImGui::IsAnyMouseDown() || ImGui::GetDragDropPayload() != nullptr)
+        {
+            hoveredCategory_ = -1;
+            hoverStartTime_ = 0.0;
         }
 
         ImGui::SameLine();

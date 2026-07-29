@@ -95,10 +95,14 @@ namespace xlaunch
             return actions;
         }
 
-        if (ImGui::BeginTable("SettingsColumns", 2, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_BordersInnerV))
+        const float footerHeight = ImGui::GetFrameHeightWithSpacing() + 8.0f;
+        ImGui::BeginChild("SettingsContent", ImVec2(0.0f, -footerHeight), ImGuiChildFlags_None,
+            ImGuiWindowFlags_AlwaysVerticalScrollbar);
+        if (ImGui::BeginTabBar("SettingsTabs"))
         {
-            ImGui::TableNextColumn();
-            SectionTitle("外观");
+            if (ImGui::BeginTabItem("外观"))
+            {
+            SectionTitle("窗口外观");
             ImGui::SetNextItemWidth(180.0f);
             if (ImGui::InputText("标题", titleBuffer_.data(), titleBuffer_.size()))
             {
@@ -109,9 +113,28 @@ namespace xlaunch
             ImGui::SameLine();
             if (ImGui::Checkbox("居中", &config.window.centerTitle)) changed = true;
             changed |= ImGui::Checkbox("显示名称", &config.appearance.showNames);
-            ImGui::SameLine(135.0f);
+            ImGui::SameLine();
             changed |= ImGui::Checkbox("显示边框", &config.appearance.showBorders);
 
+            constexpr const char* categorySwitchNames[]{ "鼠标点击", "鼠标悬停" };
+            int categorySwitchMode = static_cast<int>(config.appearance.categorySwitchMode);
+            ImGui::SetNextItemWidth(140.0f);
+            if (ImGui::Combo("分类切换", &categorySwitchMode, categorySwitchNames, 2))
+            {
+                config.appearance.categorySwitchMode = static_cast<CategorySwitchMode>(categorySwitchMode);
+                changed = true;
+            }
+            if (config.appearance.categorySwitchMode == CategorySwitchMode::Hover)
+            {
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(85.0f);
+                if (ImGui::DragInt("悬停延迟（毫秒）", &config.appearance.categoryHoverDelayMs,
+                    10.0f, 50, 2000, "%d ms"))
+                    changed = true;
+            }
+
+            ImGui::Spacing();
+            SectionTitle("图标布局");
             constexpr int sizes[]{ 32, 40, 48, 56, 64 };
             ImGui::SetNextItemWidth(82.0f);
             if (ImGui::BeginCombo("图标", std::to_string(config.appearance.iconSize).c_str()))
@@ -143,13 +166,86 @@ namespace xlaunch
             changed |= ImGui::Checkbox("调整窗口后自动贴合网格", &config.appearance.fitWindowToGridAfterResize);
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("横向贴合完整列，纵向贴合最近的完整可见行；剩余项目可滚动查看。");
+            ImGui::EndTabItem();
+            }
+
+            if (ImGui::BeginTabItem("呼出与位置"))
+            {
+            SectionTitle("快捷呼出");
+            if (ImGui::Checkbox("启用快捷呼出", &config.hotkey.enabled))
+            {
+                changed = true;
+                actions.hotkeyChanged = true;
+            }
+            ImGui::SameLine();
+            constexpr const char* triggerNames[]{ "鼠标按键", "键盘快捷键" };
+            int trigger = static_cast<int>(config.hotkey.trigger);
+            ImGui::SetNextItemWidth(140.0f);
+            if (ImGui::Combo("##Trigger", &trigger, triggerNames, 2))
+            {
+                config.hotkey.trigger = static_cast<HotkeyTrigger>(trigger);
+                changed = true;
+                actions.hotkeyChanged = true;
+            }
+
+            if (config.hotkey.trigger == HotkeyTrigger::Keyboard)
+            {
+                ImGui::TextUnformatted("快捷键");
+                ImGui::SameLine();
+                const std::string label = capturingHotkey_ ? "请按下快捷键…" : HotkeyText(config.hotkey);
+                ImGui::Button(label.c_str(), ImVec2(200.0f, 0.0f));
+                ImGui::SameLine();
+                if (ImGui::Button(capturingHotkey_ ? "取消录制" : "录制"))
+                {
+                    if (capturingHotkey_)
+                    {
+                        capturingHotkey_ = false;
+                        actions.hotkeyChanged = true;
+                    }
+                    else
+                    {
+                        capturingHotkey_ = true;
+                        captureStartFrame_ = ImGui::GetFrameCount();
+                        actions.suspendHotkey = true;
+                    }
+                }
+            }
+            else
+            {
+                constexpr const char* mouseNames[]{ "无", "中键", "侧键 1", "侧键 2" };
+                int primary = static_cast<int>(config.hotkey.mouseButton);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted("触发按键");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(100.0f);
+                if (ImGui::Combo("##MousePrimary", &primary, mouseNames, 4))
+                {
+                    config.hotkey.mouseButton = static_cast<MouseButton>(primary);
+                    changed = true; actions.hotkeyChanged = true;
+                }
+                ImGui::SameLine();
+                ImGui::TextUnformatted("组合键");
+                ImGui::SameLine();
+                int held = static_cast<int>(config.hotkey.heldMouseButton);
+                ImGui::SetNextItemWidth(100.0f);
+                if (ImGui::Combo("##MouseHeld", &held, mouseNames, 4))
+                {
+                    config.hotkey.heldMouseButton = static_cast<MouseButton>(held);
+                    changed = true; actions.hotkeyChanged = true;
+                }
+                ImGui::SameLine();
+                if (ImGui::Checkbox("双击", &config.hotkey.mouseDoubleClick))
+                {
+                    changed = true; actions.hotkeyChanged = true;
+                }
+            }
 
             ImGui::Spacing();
-            SectionTitle("启动位置");
+            SectionTitle("主界面启动位置");
             constexpr const char* positionNames[]{ "屏幕正中", "屏幕角落", "用户自定义", "鼠标位置" };
             int position = static_cast<int>(config.window.startupPosition);
-            ImGui::SetNextItemWidth(125.0f);
-            if (ImGui::Combo("##PositionMode", &position, positionNames, 4))
+            ImGui::SetNextItemWidth(150.0f);
+            if (ImGui::Combo("位置", &position, positionNames, 4))
             {
                 config.window.startupPosition = static_cast<StartupPositionMode>(position);
                 changed = true;
@@ -184,76 +280,11 @@ namespace xlaunch
                 ImGui::TextDisabled("每次呼出时定位到鼠标附近");
             else
                 ImGui::TextDisabled("显示在主屏幕工作区域正中");
-
-            ImGui::TableNextColumn();
-            SectionTitle("快捷呼出");
-            if (ImGui::Checkbox("启用", &config.hotkey.enabled))
-            {
-                changed = true;
-                actions.hotkeyChanged = true;
-            }
-            ImGui::SameLine();
-            constexpr const char* triggerNames[]{ "鼠标按键", "键盘快捷键" };
-            int trigger = static_cast<int>(config.hotkey.trigger);
-            ImGui::SetNextItemWidth(120.0f);
-            if (ImGui::Combo("##Trigger", &trigger, triggerNames, 2))
-            {
-                config.hotkey.trigger = static_cast<HotkeyTrigger>(trigger);
-                changed = true;
-                actions.hotkeyChanged = true;
+            ImGui::EndTabItem();
             }
 
-            if (config.hotkey.trigger == HotkeyTrigger::Keyboard)
+            if (ImGui::BeginTabItem("系统与备份"))
             {
-                const std::string label = capturingHotkey_ ? "请按下快捷键…" : HotkeyText(config.hotkey);
-                ImGui::Button(label.c_str(), ImVec2(180.0f, 0.0f));
-                ImGui::SameLine();
-                if (ImGui::Button(capturingHotkey_ ? "取消" : "录制"))
-                {
-                    if (capturingHotkey_)
-                    {
-                        capturingHotkey_ = false;
-                        actions.hotkeyChanged = true;
-                    }
-                    else
-                    {
-                        capturingHotkey_ = true;
-                        captureStartFrame_ = ImGui::GetFrameCount();
-                        actions.suspendHotkey = true;
-                    }
-                }
-            }
-            else
-            {
-                constexpr const char* mouseNames[]{ "无", "中键", "侧键 1", "侧键 2" };
-                int primary = static_cast<int>(config.hotkey.mouseButton);
-                ImGui::AlignTextToFramePadding();
-                ImGui::TextUnformatted("按键");
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(92.0f);
-                if (ImGui::Combo("##MousePrimary", &primary, mouseNames, 4))
-                {
-                    config.hotkey.mouseButton = static_cast<MouseButton>(primary);
-                    changed = true; actions.hotkeyChanged = true;
-                }
-                ImGui::SameLine();
-                ImGui::TextUnformatted("组合键");
-                ImGui::SameLine();
-                int held = static_cast<int>(config.hotkey.heldMouseButton);
-                ImGui::SetNextItemWidth(92.0f);
-                if (ImGui::Combo("##MouseHeld", &held, mouseNames, 4))
-                {
-                    config.hotkey.heldMouseButton = static_cast<MouseButton>(held);
-                    changed = true; actions.hotkeyChanged = true;
-                }
-                ImGui::SameLine();
-                if (ImGui::Checkbox("双击", &config.hotkey.mouseDoubleClick))
-                {
-                    changed = true; actions.hotkeyChanged = true;
-                }
-            }
-
-            ImGui::Spacing();
             SectionTitle("系统与备份");
             if (ImGui::Checkbox("开机自启", &config.startWithWindows))
             {
@@ -275,8 +306,11 @@ namespace xlaunch
             if (ImGui::Button("导入")) actions.importConfig = true;
             ImGui::SameLine();
             if (ImGui::Button("配置目录")) actions.openConfigDirectory = true;
-            ImGui::EndTable();
+            ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
         }
+        ImGui::EndChild();
 
         if (capturingHotkey_ && ImGui::GetFrameCount() > captureStartFrame_ + 1)
         {
@@ -306,7 +340,8 @@ namespace xlaunch
             }
         }
 
-        const float closeWidth = 82.0f;
+        ImGui::Separator();
+        const float closeWidth = 88.0f;
         ImGui::SetCursorPosX(ImGui::GetWindowWidth() - closeWidth - ImGui::GetStyle().WindowPadding.x);
         ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
         ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.38f, 0.48f, 0.66f, 1.0f));
