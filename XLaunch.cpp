@@ -67,7 +67,7 @@ namespace
     bool g_deferredHideOutsideOnly = false;
 
     constexpr ImVec4 kClearColor{ 0.055f, 0.063f, 0.078f, 1.0f };
-    constexpr const char* kVersion = "v2026073101";
+    constexpr const char* kVersion = "v2026073104";
     std::wstring Utf8ToWide(const std::string& value);
     void ApplyDarkTheme(float dpiScale);
     LRESULT WINAPI ToolWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -1355,6 +1355,10 @@ namespace
             if (newSize != state.config.appearance.iconSize)
             {
                 state.config.appearance.iconSize = newSize;
+                state.iconCache.Prefetch(
+                    state.config,
+                    static_cast<int>(std::lround(newSize * g_dpiScale)),
+                    true);
                 changed = true;
                 saveImmediately = true;
             }
@@ -1412,7 +1416,7 @@ namespace
         if (changed)
         {
             state.MarkDirty();
-            state.iconCache.PrefetchAllSizes(state.config);
+            state.iconCache.PrefetchAllSizes(state.config, g_dpiScale);
         }
         if (saveImmediately)
         {
@@ -1720,7 +1724,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
     const HRESULT oleResult = OleInitialize(nullptr);
     const bool oleInitialized = SUCCEEDED(oleResult);
     AppState state(g_device);
-    state.iconCache.PrefetchAllSizes(state.config);
+    state.iconCache.PrefetchAllSizes(state.config, g_dpiScale);
     g_appConfig = &state.config;
     g_keepVisible = &state.config.window.keepVisible;
     g_hotkeyManager = &state.hotkeyManager;
@@ -1876,7 +1880,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
         if (toolChanged)
         {
             state.MarkDirty();
-            state.iconCache.PrefetchAllSizes(state.config);
+            state.iconCache.PrefetchAllSizes(state.config, g_dpiScale);
         }
         if (toolSaveImmediately)
         {

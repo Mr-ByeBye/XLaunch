@@ -31,8 +31,8 @@ namespace xlaunch
         ~IconCache();
 
         [[nodiscard]] CachedIcon Get(const LaunchItem& item, int pixelSize);
-        void Prefetch(const AppConfig& config, int pixelSize);
-        void PrefetchAllSizes(const AppConfig& config);
+        void Prefetch(const AppConfig& config, int pixelSize, bool highPriority = false);
+        void PrefetchAllSizes(const AppConfig& config, float dpiScale = 1.0f);
         void Invalidate(const std::string& itemId);
         void Prune(const std::unordered_set<std::string>& activeItemIds);
         void Clear();
@@ -71,12 +71,13 @@ namespace xlaunch
         [[nodiscard]] bool LoadDiskCache(const LoadRequest& request, LoadResult& result) const;
         void SaveDiskCache(const LoadResult& result) const;
         void RemoveDiskCache(const std::string& itemId) const;
-        void Queue(const LaunchItem& item, int pixelSize, const std::string& signature);
+        void Queue(const LaunchItem& item, int pixelSize, const std::string& signature, bool highPriority = false);
         void WorkerMain();
 
         Microsoft::WRL::ComPtr<ID3D11Device> device_;
         std::filesystem::path cacheDirectory_;
         std::unordered_map<std::string, Entry> entries_;
+        std::unordered_map<std::string, std::string> knownSignatures_;
         std::mutex mutex_;
         std::condition_variable condition_;
         std::deque<LoadRequest> requests_;
