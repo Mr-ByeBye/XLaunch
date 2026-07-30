@@ -25,6 +25,12 @@ namespace xlaunch
         Hover
     };
 
+    enum class CategoryDisplayMode
+    {
+        IconGrid,
+        CompactList
+    };
+
     struct AppearanceSettings
     {
         bool showNames = true;
@@ -138,6 +144,7 @@ namespace xlaunch
     {
         std::string id;
         std::string name;
+        CategoryDisplayMode displayMode = CategoryDisplayMode::IconGrid;
         std::vector<LaunchItem> items;
     };
 

@@ -3,256 +3,259 @@
 #include "platform/ShellIcon.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
-#include <iterator>
-#include <vector>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
 
 namespace xlaunch
 {
-    IconCache::IconCache(ID3D11Device* device)
-        : device_(device)
+    namespace
+    {
+        constexpr std::array<int, 5> kCachedSizes{ 32, 40, 48, 56, 64 };
+        constexpr std::uint32_t kCacheMagic = 0x43494C58; // XLIC
+        constexpr std::uint32_t kCacheVersion = 1;
+
+        std::string FileStamp(const std::string& value)
+        {
+            if (value.empty() || value.starts_with("shell:")) return {};
+            std::error_code error;
+            const std::u8string utf8(reinterpret_cast<const char8_t*>(value.data()), value.size());
+            const std::filesystem::path path(utf8);
+            if (!std::filesystem::exists(path, error)) return {};
+            const auto size = std::filesystem::is_regular_file(path, error) ? std::filesystem::file_size(path, error) : 0;
+            const auto time = std::filesystem::last_write_time(path, error).time_since_epoch().count();
+            return std::to_string(size) + ':' + std::to_string(time);
+        }
+
+        std::string HashId(const std::string& value)
+        {
+            std::uint64_t hash = 14695981039346656037ull;
+            for (const unsigned char character : value) { hash ^= character; hash *= 1099511628211ull; }
+            std::ostringstream stream;
+            stream << std::hex << std::setw(16) << std::setfill('0') << hash;
+            return stream.str();
+        }
+    }
+
+    IconCache::IconCache(ID3D11Device* device, std::filesystem::path cacheDirectory)
+        : device_(device), cacheDirectory_(std::move(cacheDirectory))
     {
         worker_ = std::thread([this] { WorkerMain(); });
     }
 
     IconCache::~IconCache()
     {
-        {
-            std::lock_guard lock(mutex_);
-            stopping_ = true;
-        }
+        { std::lock_guard lock(mutex_); stopping_ = true; }
         condition_.notify_one();
-        if (worker_.joinable())
-            worker_.join();
-        for (auto& [id, result] : completed_)
-            if (result.icon != nullptr) DestroyIcon(result.icon);
+        if (worker_.joinable()) worker_.join();
     }
 
     std::string IconCache::MakeSignature(const LaunchItem& item, int pixelSize) const
     {
-        return item.target + '\n' + item.customIconPath + '\n' + ItemTypeName(item.type) + '\n' + std::to_string(pixelSize);
+        return "1\n" + item.target + '\n' + item.customIconPath + '\n' + ItemTypeName(item.type) + '\n' +
+            std::to_string(pixelSize) + '\n' + FileStamp(item.target) + '\n' + FileStamp(item.customIconPath);
     }
 
-    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> IconCache::CreateTexture(HICON icon, int pixelSize) const
+    std::string IconCache::MakeCacheKey(const std::string& itemId, int pixelSize) const
+    {
+        return itemId + '\n' + std::to_string(pixelSize);
+    }
+
+    std::filesystem::path IconCache::ItemCacheDirectory(const std::string& itemId) const
+    {
+        return cacheDirectory_ / HashId(itemId);
+    }
+
+    std::filesystem::path IconCache::CacheFile(const std::string& itemId, int pixelSize) const
+    {
+        return ItemCacheDirectory(itemId) / (std::to_string(pixelSize) + ".xic");
+    }
+
+    std::vector<std::uint8_t> IconCache::RasterizeIcon(HICON icon, int pixelSize) const
+    {
+        std::vector<std::uint8_t> pixels;
+        if (icon == nullptr || pixelSize <= 0) return pixels;
+        BITMAPINFO info{};
+        info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        info.bmiHeader.biWidth = pixelSize;
+        info.bmiHeader.biHeight = -pixelSize;
+        info.bmiHeader.biPlanes = 1;
+        info.bmiHeader.biBitCount = 32;
+        info.bmiHeader.biCompression = BI_RGB;
+        void* bits = nullptr;
+        HBITMAP bitmap = CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+        HDC context = CreateCompatibleDC(nullptr);
+        if (!bitmap || !context || !bits) { if (context) DeleteDC(context); if (bitmap) DeleteObject(bitmap); return pixels; }
+        const HGDIOBJ old = SelectObject(context, bitmap);
+        const std::size_t byteCount = static_cast<std::size_t>(pixelSize) * pixelSize * 4;
+        std::fill_n(static_cast<std::uint8_t*>(bits), byteCount, 0);
+        DrawIconEx(context, 0, 0, icon, pixelSize, pixelSize, 0, nullptr, DI_NORMAL);
+        auto* source = static_cast<std::uint8_t*>(bits);
+        bool hasAlpha = false;
+        for (int i = 0; i < pixelSize * pixelSize; ++i) hasAlpha |= source[i * 4 + 3] != 0;
+        if (!hasAlpha) for (int i = 0; i < pixelSize * pixelSize; ++i)
+            source[i * 4 + 3] = (std::max)({ source[i * 4], source[i * 4 + 1], source[i * 4 + 2] });
+        pixels.assign(source, source + byteCount);
+        SelectObject(context, old); DeleteDC(context); DeleteObject(bitmap);
+        return pixels;
+    }
+
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> IconCache::CreateTexture(const std::vector<std::uint8_t>& pixels, int pixelSize) const
     {
         Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> view;
-        if (icon == nullptr || device_ == nullptr || pixelSize <= 0)
-            return view;
-
-        BITMAPINFO bitmapInfo{};
-        bitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-        bitmapInfo.bmiHeader.biWidth = pixelSize;
-        bitmapInfo.bmiHeader.biHeight = -pixelSize;
-        bitmapInfo.bmiHeader.biPlanes = 1;
-        bitmapInfo.bmiHeader.biBitCount = 32;
-        bitmapInfo.bmiHeader.biCompression = BI_RGB;
-
-        void* bits = nullptr;
-        HBITMAP bitmap = CreateDIBSection(nullptr, &bitmapInfo, DIB_RGB_COLORS, &bits, nullptr, 0);
-        HDC deviceContext = CreateCompatibleDC(nullptr);
-        if (bitmap == nullptr || deviceContext == nullptr || bits == nullptr)
-        {
-            if (deviceContext != nullptr)
-                DeleteDC(deviceContext);
-            if (bitmap != nullptr)
-                DeleteObject(bitmap);
-            return view;
-        }
-
-        HGDIOBJ oldBitmap = SelectObject(deviceContext, bitmap);
-        std::fill_n(static_cast<std::uint32_t*>(bits), static_cast<std::size_t>(pixelSize) * pixelSize, 0u);
-        DrawIconEx(deviceContext, 0, 0, icon, pixelSize, pixelSize, 0, nullptr, DI_NORMAL);
-
-        auto* pixels = static_cast<std::uint8_t*>(bits);
-        bool hasAlpha = false;
-        for (int index = 0; index < pixelSize * pixelSize; ++index)
-            hasAlpha |= pixels[index * 4 + 3] != 0;
-        if (!hasAlpha)
-        {
-            for (int index = 0; index < pixelSize * pixelSize; ++index)
-            {
-                std::uint8_t* pixel = pixels + index * 4;
-                pixel[3] = (std::max)({ pixel[0], pixel[1], pixel[2] });
-            }
-        }
-
+        if (!device_ || pixelSize <= 0 || pixels.size() != static_cast<std::size_t>(pixelSize) * pixelSize * 4) return view;
         D3D11_TEXTURE2D_DESC description{};
-        description.Width = static_cast<UINT>(pixelSize);
-        description.Height = static_cast<UINT>(pixelSize);
-        description.MipLevels = 1;
-        description.ArraySize = 1;
-        description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-        description.SampleDesc.Count = 1;
-        description.Usage = D3D11_USAGE_IMMUTABLE;
-        description.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        D3D11_SUBRESOURCE_DATA data{};
-        data.pSysMem = bits;
-        data.SysMemPitch = static_cast<UINT>(pixelSize * 4);
-
+        description.Width = pixelSize; description.Height = pixelSize; description.MipLevels = 1; description.ArraySize = 1;
+        description.Format = DXGI_FORMAT_B8G8R8A8_UNORM; description.SampleDesc.Count = 1;
+        description.Usage = D3D11_USAGE_IMMUTABLE; description.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        D3D11_SUBRESOURCE_DATA data{ pixels.data(), static_cast<UINT>(pixelSize * 4), 0 };
         Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
-        if (SUCCEEDED(device_->CreateTexture2D(&description, &data, &texture)))
-            device_->CreateShaderResourceView(texture.Get(), nullptr, &view);
-
-        SelectObject(deviceContext, oldBitmap);
-        DeleteDC(deviceContext);
-        DeleteObject(bitmap);
+        if (SUCCEEDED(device_->CreateTexture2D(&description, &data, &texture))) device_->CreateShaderResourceView(texture.Get(), nullptr, &view);
         return view;
+    }
+
+    bool IconCache::LoadDiskCache(const LoadRequest& request, LoadResult& result) const
+    {
+        if (cacheDirectory_.empty()) return false;
+        std::ifstream input(CacheFile(request.item.id, request.pixelSize), std::ios::binary);
+        std::uint32_t magic{}, version{}, size{}, fallback{}, signatureLength{}, pixelCount{};
+        input.read(reinterpret_cast<char*>(&magic), 4); input.read(reinterpret_cast<char*>(&version), 4);
+        input.read(reinterpret_cast<char*>(&size), 4); input.read(reinterpret_cast<char*>(&fallback), 4);
+        input.read(reinterpret_cast<char*>(&signatureLength), 4); input.read(reinterpret_cast<char*>(&pixelCount), 4);
+        const std::size_t expected = static_cast<std::size_t>(request.pixelSize) * request.pixelSize * 4;
+        if (!input || magic != kCacheMagic || version != kCacheVersion || size != request.pixelSize ||
+            signatureLength > 1024 * 1024 || pixelCount != expected) return false;
+        std::string signature(signatureLength, '\0'); input.read(signature.data(), signature.size());
+        if (!input || signature != request.signature) return false;
+        result = { request.item.id, request.signature, request.pixelSize, std::vector<std::uint8_t>(pixelCount), fallback != 0 };
+        input.read(reinterpret_cast<char*>(result.pixels.data()), result.pixels.size());
+        return static_cast<bool>(input);
+    }
+
+    void IconCache::SaveDiskCache(const LoadResult& result) const
+    {
+        if (cacheDirectory_.empty() || result.pixels.empty()) return;
+        std::error_code error;
+        const auto directory = ItemCacheDirectory(result.itemId);
+        std::filesystem::create_directories(directory, error);
+        if (error) return;
+        const auto destination = CacheFile(result.itemId, result.pixelSize);
+        auto temporary = destination; temporary += ".tmp";
+        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+        const std::uint32_t values[]{ kCacheMagic, kCacheVersion, static_cast<std::uint32_t>(result.pixelSize),
+            result.fallback ? 1u : 0u, static_cast<std::uint32_t>(result.signature.size()), static_cast<std::uint32_t>(result.pixels.size()) };
+        output.write(reinterpret_cast<const char*>(values), sizeof(values)); output.write(result.signature.data(), result.signature.size());
+        output.write(reinterpret_cast<const char*>(result.pixels.data()), result.pixels.size()); output.close();
+        if (!output) { std::filesystem::remove(temporary, error); return; }
+        std::filesystem::remove(destination, error); error.clear(); std::filesystem::rename(temporary, destination, error);
+        if (error) std::filesystem::remove(temporary, error);
+    }
+
+    void IconCache::RemoveDiskCache(const std::string& itemId) const
+    {
+        if (cacheDirectory_.empty()) return;
+        std::error_code error; std::filesystem::remove_all(ItemCacheDirectory(itemId), error);
     }
 
     CachedIcon IconCache::Get(const LaunchItem& item, int pixelSize)
     {
-        const std::string signature = MakeSignature(item, pixelSize);
-        const auto existing = entries_.find(item.id);
-        if (existing != entries_.end() && existing->second.signature == signature)
-            return { existing->second.texture.Get(), existing->second.fallback };
-
-        LoadResult completed;
-        bool hasCompleted = false;
-        bool isQueued = false;
+        const std::string signature = MakeSignature(item, pixelSize), key = MakeCacheKey(item.id, pixelSize);
+        if (const auto found = entries_.find(key); found != entries_.end() && found->second.signature == signature)
+            return { found->second.texture.Get(), found->second.fallback };
+        LoadResult result; bool ready = false, queued = false;
+        { std::lock_guard lock(mutex_);
+          if (auto found = completed_.find(key); found != completed_.end() && found->second.signature == signature)
+          { result = std::move(found->second); completed_.erase(found); ready = true; }
+          if (auto found = queuedSignatures_.find(key); found != queuedSignatures_.end() && found->second == signature) queued = true; }
+        if (!ready && queued) return {};
+        if (!ready)
         {
-            std::lock_guard lock(mutex_);
-            const auto found = completed_.find(item.id);
-            if (found != completed_.end() && found->second.signature == signature)
+            const LoadRequest request{ item, pixelSize, signature };
+            if (!LoadDiskCache(request, result))
             {
-                completed = std::move(found->second);
-                completed_.erase(found);
-                hasCompleted = true;
+                ShellIconResult shell = LoadShellIcon(item, pixelSize);
+                result = { item.id, signature, pixelSize, RasterizeIcon(shell.icon, pixelSize), shell.usedFallback };
+                if (shell.icon) DestroyIcon(shell.icon);
+                SaveDiskCache(result);
             }
-            const auto queued = queuedSignatures_.find(item.id);
-            isQueued = queued != queuedSignatures_.end() && queued->second == signature;
         }
-        if (!hasCompleted)
-        {
-            if (isQueued)
-                return {};
-            ShellIconResult shellIcon = LoadShellIcon(item, pixelSize);
-            Entry entry;
-            entry.signature = signature;
-            entry.fallback = shellIcon.usedFallback;
-            entry.texture = CreateTexture(shellIcon.icon, pixelSize);
-            if (shellIcon.icon != nullptr)
-                DestroyIcon(shellIcon.icon);
-            entries_[item.id] = std::move(entry);
-            const Entry& stored = entries_.at(item.id);
-            return { stored.texture.Get(), stored.fallback };
-        }
-
-        Entry entry;
-        entry.signature = signature;
-        entry.fallback = completed.fallback;
-        entry.texture = CreateTexture(completed.icon, pixelSize);
-        if (completed.icon != nullptr)
-            DestroyIcon(completed.icon);
-        entries_[item.id] = std::move(entry);
-        const Entry& stored = entries_.at(item.id);
+        Entry entry{ signature, CreateTexture(result.pixels, pixelSize), result.fallback };
+        entries_[key] = std::move(entry); const Entry& stored = entries_.at(key);
         return { stored.texture.Get(), stored.fallback };
     }
 
     void IconCache::Prefetch(const AppConfig& config, int pixelSize)
     {
-        for (const Category& category : config.categories)
-            for (const LaunchItem& item : category.items)
-            {
-                const std::string signature = MakeSignature(item, pixelSize);
-                const auto existing = entries_.find(item.id);
-                if (existing == entries_.end() || existing->second.signature != signature)
-                    Queue(item, pixelSize, signature);
-            }
+        for (const Category& category : config.categories) for (const LaunchItem& item : category.items)
+        { const auto signature = MakeSignature(item, pixelSize), key = MakeCacheKey(item.id, pixelSize);
+          if (auto found = entries_.find(key); found == entries_.end() || found->second.signature != signature) Queue(item, pixelSize, signature); }
+    }
+
+    void IconCache::PrefetchAllSizes(const AppConfig& config)
+    {
+        // The visible size goes first so an existing user's one-time disk-cache
+        // migration never delays the icons that are needed on screen right now.
+        Prefetch(config, config.appearance.iconSize);
+        for (int size : kCachedSizes)
+            if (size != config.appearance.iconSize)
+                Prefetch(config, size);
     }
 
     void IconCache::Queue(const LaunchItem& item, int pixelSize, const std::string& signature)
     {
-        {
-            std::lock_guard lock(mutex_);
-            const auto queued = queuedSignatures_.find(item.id);
-            if (queued != queuedSignatures_.end() && queued->second == signature)
-                return;
-            const auto completed = completed_.find(item.id);
-            if (completed != completed_.end() && completed->second.signature == signature)
-                return;
-            queuedSignatures_[item.id] = signature;
-            requests_.push_back(LoadRequest{ item, pixelSize, signature });
-        }
+        const auto key = MakeCacheKey(item.id, pixelSize);
+        { std::lock_guard lock(mutex_);
+          if (auto found = queuedSignatures_.find(key); found != queuedSignatures_.end() && found->second == signature) return;
+          if (auto found = completed_.find(key); found != completed_.end() && found->second.signature == signature) return;
+          queuedSignatures_[key] = signature; requests_.push_back({ item, pixelSize, signature }); }
         condition_.notify_one();
     }
 
     void IconCache::WorkerMain()
     {
-        const HRESULT comResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        const HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         for (;;)
         {
             LoadRequest request;
-            {
-                std::unique_lock lock(mutex_);
-                condition_.wait(lock, [&] { return stopping_ || !requests_.empty(); });
-                if (stopping_) break;
-                request = std::move(requests_.front());
-                requests_.pop_front();
-            }
-            ShellIconResult icon = LoadShellIcon(request.item, request.pixelSize);
+            { std::unique_lock lock(mutex_); condition_.wait(lock, [&] { return stopping_ || !requests_.empty(); });
+              if (stopping_) break; request = std::move(requests_.front()); requests_.pop_front(); }
+            LoadResult result;
+            if (!LoadDiskCache(request, result))
+            { ShellIconResult shell = LoadShellIcon(request.item, request.pixelSize);
+              result = { request.item.id, request.signature, request.pixelSize, RasterizeIcon(shell.icon, request.pixelSize), shell.usedFallback };
+              if (shell.icon) DestroyIcon(shell.icon); }
+            const auto key = MakeCacheKey(request.item.id, request.pixelSize);
             std::lock_guard lock(mutex_);
-            const auto current = queuedSignatures_.find(request.item.id);
-            if (current != queuedSignatures_.end() && current->second == request.signature)
-            {
-                auto old = completed_.find(request.item.id);
-                if (old != completed_.end() && old->second.icon != nullptr)
-                    DestroyIcon(old->second.icon);
-                completed_[request.item.id] = LoadResult{
-                    request.item.id, request.signature, icon.icon, icon.usedFallback };
-                queuedSignatures_.erase(current);
-            }
-            else if (icon.icon != nullptr)
-                DestroyIcon(icon.icon);
+            if (auto current = queuedSignatures_.find(key); current != queuedSignatures_.end() && current->second == request.signature)
+            { SaveDiskCache(result); completed_[key] = std::move(result); queuedSignatures_.erase(current); }
         }
-        if (SUCCEEDED(comResult))
-            CoUninitialize();
+        if (SUCCEEDED(com)) CoUninitialize();
     }
 
     void IconCache::Invalidate(const std::string& itemId)
     {
-        entries_.erase(itemId);
+        for (auto it = entries_.begin(); it != entries_.end();) it = it->first.starts_with(itemId + '\n') ? entries_.erase(it) : std::next(it);
         std::lock_guard lock(mutex_);
-        queuedSignatures_.erase(itemId);
-        const auto completed = completed_.find(itemId);
-        if (completed != completed_.end())
-        {
-            if (completed->second.icon != nullptr) DestroyIcon(completed->second.icon);
-            completed_.erase(completed);
-        }
+        for (auto it = queuedSignatures_.begin(); it != queuedSignatures_.end();) it = it->first.starts_with(itemId + '\n') ? queuedSignatures_.erase(it) : std::next(it);
+        for (auto it = completed_.begin(); it != completed_.end();) it = it->first.starts_with(itemId + '\n') ? completed_.erase(it) : std::next(it);
+        RemoveDiskCache(itemId);
     }
 
     void IconCache::Prune(const std::unordered_set<std::string>& activeItemIds)
     {
-        for (auto iterator = entries_.begin(); iterator != entries_.end();)
-        {
-            if (!activeItemIds.contains(iterator->first))
-                iterator = entries_.erase(iterator);
-            else
-                ++iterator;
-        }
-        std::lock_guard lock(mutex_);
-        for (auto iterator = queuedSignatures_.begin(); iterator != queuedSignatures_.end();)
-            iterator = activeItemIds.contains(iterator->first) ? std::next(iterator) : queuedSignatures_.erase(iterator);
-        for (auto iterator = completed_.begin(); iterator != completed_.end();)
-        {
-            if (activeItemIds.contains(iterator->first))
-                ++iterator;
-            else
-            {
-                if (iterator->second.icon != nullptr) DestroyIcon(iterator->second.icon);
-                iterator = completed_.erase(iterator);
-            }
-        }
+        std::unordered_set<std::string> removed;
+        for (auto it = entries_.begin(); it != entries_.end();) { const auto id = it->first.substr(0, it->first.find('\n'));
+            if (!activeItemIds.contains(id)) { removed.insert(id); it = entries_.erase(it); } else ++it; }
+        { std::lock_guard lock(mutex_);
+          for (auto it = queuedSignatures_.begin(); it != queuedSignatures_.end();) { const auto id = it->first.substr(0, it->first.find('\n')); if (!activeItemIds.contains(id)) { removed.insert(id); it = queuedSignatures_.erase(it); } else ++it; }
+          for (auto it = completed_.begin(); it != completed_.end();) { if (!activeItemIds.contains(it->second.itemId)) { removed.insert(it->second.itemId); it = completed_.erase(it); } else ++it; } }
+        for (const auto& id : removed) RemoveDiskCache(id);
     }
 
     void IconCache::Clear()
     {
-        entries_.clear();
-        std::lock_guard lock(mutex_);
-        requests_.clear();
-        queuedSignatures_.clear();
-        for (auto& [id, result] : completed_)
-            if (result.icon != nullptr) DestroyIcon(result.icon);
-        completed_.clear();
+        entries_.clear(); std::lock_guard lock(mutex_); requests_.clear(); queuedSignatures_.clear(); completed_.clear();
     }
 }

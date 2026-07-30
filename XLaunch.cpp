@@ -67,7 +67,7 @@ namespace
     bool g_deferredHideOutsideOnly = false;
 
     constexpr ImVec4 kClearColor{ 0.055f, 0.063f, 0.078f, 1.0f };
-    constexpr const char* kVersion = "v2026073001";
+    constexpr const char* kVersion = "v2026073101";
     std::wstring Utf8ToWide(const std::string& value);
     void ApplyDarkTheme(float dpiScale);
     LRESULT WINAPI ToolWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -275,7 +275,7 @@ namespace
         bool duplicatePopupRequested = false;
 
         explicit AppState(ID3D11Device* device)
-            : iconCache(device)
+            : iconCache(device, configManager.Path().parent_path() / "icon-cache")
         {
             auto result = configManager.Load();
             config = std::move(result.config);
@@ -557,7 +557,7 @@ namespace
                 const WNDCLASSEXW windowClass{
                     sizeof(WNDCLASSEXW), CS_CLASSDC, ToolWndProc, 0, 0, instance,
                     LoadIconW(instance, MAKEINTRESOURCEW(IDI_XLAUNCH)), LoadCursorW(nullptr, IDC_ARROW),
-                    nullptr, nullptr, L"XLaunchToolWindowClass", LoadIconW(instance, MAKEINTRESOURCEW(IDI_SMALL))
+                    nullptr, nullptr, L"XLaunchToolWindowClass", LoadIconW(instance, MAKEINTRESOURCEW(IDI_XLAUNCH))
                 };
                 if (RegisterClassExW(&windowClass) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
                     return false;
@@ -987,9 +987,10 @@ namespace
 
         xlaunch::Category& category = state.config.categories[state.selectedCategory];
         const xlaunch::AppearanceSettings& appearance = state.config.appearance;
-        const float iconSize = static_cast<float>(appearance.iconSize) * g_dpiScale;
-        const float cellWidth = (std::max)(iconSize + 24.0f * g_dpiScale, 82.0f * g_dpiScale);
-        const float cellHeight = iconSize + (appearance.showNames ? 28.0f : 14.0f) * g_dpiScale;
+        const bool compactList = category.displayMode == xlaunch::CategoryDisplayMode::CompactList;
+        const float iconSize = (compactList ? 24.0f : static_cast<float>(appearance.iconSize)) * g_dpiScale;
+        float cellWidth = (std::max)(iconSize + 24.0f * g_dpiScale, 82.0f * g_dpiScale);
+        const float cellHeight = compactList ? 34.0f * g_dpiScale : iconSize + (appearance.showNames ? 28.0f : 14.0f) * g_dpiScale;
         const float horizontalGap = appearance.horizontalSpacing * g_dpiScale;
         const float verticalGap = appearance.verticalSpacing * g_dpiScale;
 
@@ -1003,7 +1004,12 @@ namespace
             ImGuiChildFlags_None);
         const float availableWidth = ImGui::GetContentRegionAvail().x;
         const float availableHeight = ImGui::GetContentRegionAvail().y;
-        const int columns = (std::max)(1, static_cast<int>((availableWidth + horizontalGap) / (cellWidth + horizontalGap)));
+        const float compactMinimumWidth = 180.0f * g_dpiScale;
+        const int columns = compactList
+            ? (std::max)(1, static_cast<int>((availableWidth + horizontalGap) / (compactMinimumWidth + horizontalGap)))
+            : (std::max)(1, static_cast<int>((availableWidth + horizontalGap) / (cellWidth + horizontalGap)));
+        if (compactList)
+            cellWidth = (availableWidth - horizontalGap * (columns - 1)) / columns;
         if (!category.items.empty())
         {
             const int totalRows = static_cast<int>((category.items.size() + static_cast<std::size_t>(columns) - 1) /
@@ -1073,7 +1079,9 @@ namespace
             if (appearance.showBorders)
                 drawList->AddRect(cellMin, cellMax, IM_COL32(65, 72, 88, 255), 3.0f);
 
-            const ImVec2 iconMin{ cellMin.x + (cellWidth - iconSize) * 0.5f, cellMin.y + 4.0f };
+            const ImVec2 iconMin = compactList
+                ? ImVec2(cellMin.x + 6.0f * g_dpiScale, cellMin.y + (cellHeight - iconSize) * 0.5f)
+                : ImVec2(cellMin.x + (cellWidth - iconSize) * 0.5f, cellMin.y + 4.0f);
             const ImVec2 iconMax{ iconMin.x + iconSize, iconMin.y + iconSize };
             const xlaunch::CachedIcon cachedIcon = state.iconCache.Get(item, static_cast<int>(std::lround(iconSize)));
             if (cachedIcon.texture != nullptr)
@@ -1090,13 +1098,16 @@ namespace
                     IM_COL32(255, 255, 255, 245), "?");
             }
 
-            if (appearance.showNames)
+            if (appearance.showNames || compactList)
             {
                 const std::string fullName = item.DisplayName();
-                const std::string visibleName = Ellipsize(fullName, cellWidth - 8.0f);
+                const float textAreaWidth = compactList ? cellWidth - iconSize - 22.0f * g_dpiScale : cellWidth - 8.0f;
+                const std::string visibleName = Ellipsize(fullName, textAreaWidth);
                 const float textWidth = ImGui::CalcTextSize(visibleName.c_str()).x;
                 drawList->AddText(
-                    ImVec2(cellMin.x + (cellWidth - textWidth) * 0.5f, iconMax.y + 4.0f),
+                    compactList
+                        ? ImVec2(iconMax.x + 8.0f * g_dpiScale, cellMin.y + (cellHeight - ImGui::GetTextLineHeight()) * 0.5f)
+                        : ImVec2(cellMin.x + (cellWidth - textWidth) * 0.5f, iconMax.y + 4.0f),
                     IM_COL32(230, 233, 239, 255), visibleName.c_str());
             }
             if (hovered)
@@ -1163,6 +1174,23 @@ namespace
 
         if (ImGui::BeginPopupContextWindow("GridMenu", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
         {
+            if (ImGui::BeginMenu("显示方式"))
+            {
+                if (ImGui::MenuItem("图标网格", nullptr, !compactList))
+                {
+                    category.displayMode = xlaunch::CategoryDisplayMode::IconGrid;
+                    changed = true;
+                    saveImmediately = true;
+                }
+                if (ImGui::MenuItem("紧凑列表", nullptr, compactList))
+                {
+                    category.displayMode = xlaunch::CategoryDisplayMode::CompactList;
+                    changed = true;
+                    saveImmediately = true;
+                }
+                ImGui::EndMenu();
+            }
+            ImGui::Separator();
             if (ImGui::MenuItem("新增启动项目"))
                 state.itemEditor.OpenNew(state.selectedCategory);
             if (ImGui::BeginMenu("添加系统图标"))
@@ -1255,6 +1283,7 @@ namespace
             {
                 if (deleteItem >= 0 && deleteItem < static_cast<int>(category.items.size()))
                 {
+                    state.iconCache.Invalidate(category.items[deleteItem].id);
                     category.items.erase(category.items.begin() + deleteItem);
                     for (std::size_t index = 0; index < category.items.size(); ++index)
                         category.items[index].sortOrder = static_cast<int>(index);
@@ -1383,7 +1412,7 @@ namespace
         if (changed)
         {
             state.MarkDirty();
-            state.iconCache.Prefetch(state.config, state.config.appearance.iconSize);
+            state.iconCache.PrefetchAllSizes(state.config);
         }
         if (saveImmediately)
         {
@@ -1650,7 +1679,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
         sizeof(WNDCLASSEXW), CS_CLASSDC | CS_DROPSHADOW, WndProc, 0, 0, instance,
         LoadIconW(instance, MAKEINTRESOURCEW(IDI_XLAUNCH)),
         LoadCursorW(nullptr, IDC_ARROW), nullptr, nullptr, L"XLaunchWindowClass",
-        LoadIconW(instance, MAKEINTRESOURCEW(IDI_SMALL))
+        LoadIconW(instance, MAKEINTRESOURCEW(IDI_XLAUNCH))
     };
     if (RegisterClassExW(&windowClass) == 0)
     {
@@ -1691,7 +1720,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
     const HRESULT oleResult = OleInitialize(nullptr);
     const bool oleInitialized = SUCCEEDED(oleResult);
     AppState state(g_device);
-    state.iconCache.Prefetch(state.config, state.config.appearance.iconSize);
+    state.iconCache.PrefetchAllSizes(state.config);
     g_appConfig = &state.config;
     g_keepVisible = &state.config.window.keepVisible;
     g_hotkeyManager = &state.hotkeyManager;
@@ -1847,7 +1876,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
         if (toolChanged)
         {
             state.MarkDirty();
-            state.iconCache.Prefetch(state.config, state.config.appearance.iconSize);
+            state.iconCache.PrefetchAllSizes(state.config);
         }
         if (toolSaveImmediately)
         {

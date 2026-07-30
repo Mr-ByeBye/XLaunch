@@ -311,6 +311,8 @@ namespace xlaunch
                     Category category;
                     category.id = ReadString(categoryValue, "id");
                     category.name = ReadString(categoryValue, "name");
+                    category.displayMode = categoryValue.value("displayMode", "iconGrid") == "compactList"
+                        ? CategoryDisplayMode::CompactList : CategoryDisplayMode::IconGrid;
                     if (const auto items = categoryValue.find("items"); items != categoryValue.end() && items->is_array())
                     {
                         for (const json& itemValue : *items)
@@ -414,6 +416,7 @@ namespace xlaunch
                 json categoryValue{
                     { "id", category.id },
                     { "name", category.name },
+                    { "displayMode", category.displayMode == CategoryDisplayMode::CompactList ? "compactList" : "iconGrid" },
                     { "items", json::array() }
                 };
                 for (const LaunchItem& item : category.items)

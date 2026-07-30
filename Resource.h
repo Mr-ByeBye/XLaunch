@@ -10,7 +10,6 @@
 #define IDM_ABOUT				104
 #define IDM_EXIT				105
 #define IDI_XLAUNCH			107
-#define IDI_SMALL				108
 #define IDC_XLAUNCH			109
 #define IDC_MYICON				2
 #ifndef IDC_STATIC
