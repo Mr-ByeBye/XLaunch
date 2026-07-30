@@ -61,12 +61,13 @@ namespace
     bool g_trackingClientMouse = false;
     bool g_trackingNonClientMouse = false;
     bool g_autoHideSuppressed = false;
+    bool g_keepAboveUntilMouseLeaves = false;
     constexpr UINT_PTR kMouseLeaveHideTimerId = 0x584C;
     constexpr UINT_PTR kDeferredHideTimerId = 0x584D;
     bool g_deferredHideOutsideOnly = false;
 
     constexpr ImVec4 kClearColor{ 0.055f, 0.063f, 0.078f, 1.0f };
-    constexpr const char* kVersion = "v2026072911";
+    constexpr const char* kVersion = "v2026073001";
     std::wstring Utf8ToWide(const std::string& value);
     void ApplyDarkTheme(float dpiScale);
     LRESULT WINAPI ToolWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -193,8 +194,17 @@ namespace
         KillTimer(window, kDeferredHideTimerId);
         g_trackingClientMouse = false;
         g_trackingNonClientMouse = false;
+        g_keepAboveUntilMouseLeaves = false;
         ShowWindow(window, SW_HIDE);
         SetProcessWorkingSetSize(GetCurrentProcess(), static_cast<SIZE_T>(-1), static_cast<SIZE_T>(-1));
+    }
+
+    void KeepMainWindowForMultipleLaunches(HWND window)
+    {
+        g_keepAboveUntilMouseLeaves = true;
+        SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE);
+        SetForegroundWindow(window);
     }
 
     void RequestHideMainWindow(HWND window, bool outsideOnly)
@@ -1090,10 +1100,15 @@ namespace
                     IM_COL32(230, 233, 239, 255), visibleName.c_str());
             }
             if (hovered)
-                ImGui::SetTooltip("%s", item.DisplayName().c_str());
+                ImGui::SetTooltip("%s\n单击启动；Ctrl + 单击可连续启动", item.DisplayName().c_str());
 
-            if (clicked && ImGui::GetDragDropPayload() == nullptr && ShowOperationResult(state, xlaunch::Launch(item), "启动") && !state.config.window.keepVisible)
-                RequestHideMainWindow(owner, false);
+            if (clicked && ImGui::GetDragDropPayload() == nullptr && ShowOperationResult(state, xlaunch::Launch(item), "启动"))
+            {
+                if (ImGui::GetIO().KeyCtrl && !state.config.window.keepVisible)
+                    KeepMainWindowForMultipleLaunches(owner);
+                else if (!state.config.window.keepVisible)
+                    RequestHideMainWindow(owner, false);
+            }
 
             if (ImGui::BeginPopupContextItem("ItemMenu"))
             {
@@ -1101,6 +1116,11 @@ namespace
                 {
                     if (ShowOperationResult(state, xlaunch::Launch(item), "启动") && !state.config.window.keepVisible)
                         RequestHideMainWindow(owner, false);
+                }
+                if (ImGui::MenuItem("启动并保持显示"))
+                {
+                    if (ShowOperationResult(state, xlaunch::Launch(item), "启动") && !state.config.window.keepVisible)
+                        KeepMainWindowForMultipleLaunches(owner);
                 }
                 if (ImGui::MenuItem("以管理员身份运行"))
                 {
