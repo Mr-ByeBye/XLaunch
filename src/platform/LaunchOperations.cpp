@@ -64,7 +64,10 @@ namespace xlaunch
 
             SHELLEXECUTEINFOW info{};
             info.cbSize = sizeof(info);
-            info.fMask = SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
+            // XLaunch owns a persistent UI message loop, so the Shell may finish
+            // DDE or execution-delegate activation in the background. Forcing
+            // SEE_MASK_NOASYNC here can stall the render thread during handoff.
+            info.fMask = SEE_MASK_FLAG_NO_UI | SEE_MASK_ASYNCOK;
             info.lpVerb = verb;
             info.lpFile = target.c_str();
             info.lpParameters = parameters.empty() ? nullptr : parameters.c_str();
@@ -84,7 +87,7 @@ namespace xlaunch
 
             SHELLEXECUTEINFOW info{};
             info.cbSize = sizeof(info);
-            info.fMask = SEE_MASK_IDLIST | SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
+            info.fMask = SEE_MASK_IDLIST | SEE_MASK_FLAG_NO_UI | SEE_MASK_ASYNCOK;
             info.lpVerb = L"open";
             info.lpIDList = itemIdList;
             info.nShow = SW_SHOWNORMAL;
