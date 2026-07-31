@@ -67,8 +67,10 @@ int main()
     config.appearance.iconSize = 64;
     config.appearance.horizontalSpacing = 18.0f;
     config.appearance.verticalSpacing = 20.0f;
+    config.appearance.compactColumnMinimumWidth = 72.0f;
     config.appearance.windowOpacity = 0.72f;
     config.appearance.fitWindowToGridAfterResize = true;
+    config.appearance.itemActivationMode = xlaunch::ItemActivationMode::DoubleClick;
     config.appearance.categorySwitchMode = xlaunch::CategorySwitchMode::Hover;
     config.appearance.categoryHoverDelayMs = 420;
     config.window.startupPosition = xlaunch::StartupPositionMode::Custom;
@@ -114,6 +116,10 @@ int main()
     success &= Check(!loaded.config.appearance.showNames, "名称设置未保存");
     success &= Check(loaded.config.appearance.showBorders, "边框设置未保存");
     success &= Check(loaded.config.appearance.iconSize == 64, "图标大小未保存");
+    success &= Check(std::abs(loaded.config.appearance.compactColumnMinimumWidth - 72.0f) < 0.001f,
+        "紧凑模式列最小宽度未保存");
+    success &= Check(loaded.config.appearance.itemActivationMode == xlaunch::ItemActivationMode::DoubleClick,
+        "项目启动方式未保存");
     success &= Check(std::abs(loaded.config.appearance.windowOpacity - 0.72f) < 0.001f, "窗口透明度未保存");
     success &= Check(loaded.config.appearance.fitWindowToGridAfterResize, "自动贴合网格设置未保存");
     success &= Check(loaded.config.appearance.categorySwitchMode == xlaunch::CategorySwitchMode::Hover &&

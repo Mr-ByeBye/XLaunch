@@ -249,8 +249,11 @@ namespace xlaunch
                 config.appearance.iconSize = appearance->value("iconSize", 48);
                 config.appearance.horizontalSpacing = appearance->value("horizontalSpacing", 12.0f);
                 config.appearance.verticalSpacing = appearance->value("verticalSpacing", 12.0f);
+                config.appearance.compactColumnMinimumWidth = appearance->value("compactColumnMinimumWidth", 180.0f);
                 config.appearance.windowOpacity = appearance->value("windowOpacity", 1.0f);
                 config.appearance.fitWindowToGridAfterResize = appearance->value("fitWindowToGridAfterResize", true);
+                config.appearance.itemActivationMode = appearance->value("itemActivationMode", "singleClick") == "doubleClick"
+                    ? ItemActivationMode::DoubleClick : ItemActivationMode::SingleClick;
                 config.appearance.categorySwitchMode = appearance->value("categorySwitchMode", "click") == "hover"
                     ? CategorySwitchMode::Hover : CategorySwitchMode::Click;
                 config.appearance.categoryHoverDelayMs = appearance->value("categoryHoverDelayMs", 250);
@@ -370,8 +373,10 @@ namespace xlaunch
                 { "iconSize", config.appearance.iconSize },
                 { "horizontalSpacing", config.appearance.horizontalSpacing },
                 { "verticalSpacing", config.appearance.verticalSpacing },
+                { "compactColumnMinimumWidth", config.appearance.compactColumnMinimumWidth },
                 { "windowOpacity", config.appearance.windowOpacity },
                 { "fitWindowToGridAfterResize", config.appearance.fitWindowToGridAfterResize },
+                { "itemActivationMode", config.appearance.itemActivationMode == ItemActivationMode::DoubleClick ? "doubleClick" : "singleClick" },
                 { "categorySwitchMode", config.appearance.categorySwitchMode == CategorySwitchMode::Hover ? "hover" : "click" },
                 { "categoryHoverDelayMs", config.appearance.categoryHoverDelayMs }
             };

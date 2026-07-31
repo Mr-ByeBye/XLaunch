@@ -52,6 +52,7 @@ namespace
     bool g_allowLocalHotkeys = false;
     int g_fittedWindowWidth = 0;
     int g_fittedWindowHeight = 0;
+    int g_dynamicMinimumWidth = 80;
     bool g_fitWidthAfterNextFrame = false;
     bool g_fitHeightAfterNextFrame = false;
     bool g_persistWindowSizeAfterFrame = false;
@@ -65,9 +66,11 @@ namespace
     constexpr UINT_PTR kMouseLeaveHideTimerId = 0x584C;
     constexpr UINT_PTR kDeferredHideTimerId = 0x584D;
     bool g_deferredHideOutsideOnly = false;
+    RECT g_beforeShortcutFitBounds{};
+    bool g_shortcutFitActive = false;
 
     constexpr ImVec4 kClearColor{ 0.055f, 0.063f, 0.078f, 1.0f };
-    constexpr const char* kVersion = "v2026073104";
+    constexpr const char* kVersion = "v2026073107";
     std::wstring Utf8ToWide(const std::string& value);
     void ApplyDarkTheme(float dpiScale);
     LRESULT WINAPI ToolWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -150,7 +153,7 @@ namespace
         if (!GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitorInfo))
             return;
         const RECT& work = monitorInfo.rcWork;
-        const int minimumWidth = static_cast<int>(300.0f * g_dpiScale);
+        const int minimumWidth = g_dynamicMinimumWidth;
         const int minimumHeight = static_cast<int>(280.0f * g_dpiScale);
         const int workWidth = static_cast<int>(work.right - work.left);
         const int workHeight = static_cast<int>(work.bottom - work.top);
@@ -984,6 +987,7 @@ namespace
         int reorderSource = -1;
         int reorderTarget = -1;
         static int deleteItem = -1;
+        bool hoveredAnyItem = false;
 
         xlaunch::Category& category = state.config.categories[state.selectedCategory];
         const xlaunch::AppearanceSettings& appearance = state.config.appearance;
@@ -1004,7 +1008,12 @@ namespace
             ImGuiChildFlags_None);
         const float availableWidth = ImGui::GetContentRegionAvail().x;
         const float availableHeight = ImGui::GetContentRegionAvail().y;
-        const float compactMinimumWidth = 180.0f * g_dpiScale;
+        const float compactMinimumWidth = appearance.compactColumnMinimumWidth * g_dpiScale;
+        const float widthOverhead = hostWindowSize.x - availableWidth;
+        const float minimumContentWidth = compactList ? compactMinimumWidth : cellWidth;
+        g_dynamicMinimumWidth = (std::max)(
+            static_cast<int>(std::ceil(widthOverhead + minimumContentWidth)),
+            static_cast<int>(48.0f * g_dpiScale));
         const int columns = compactList
             ? (std::max)(1, static_cast<int>((availableWidth + horizontalGap) / (compactMinimumWidth + horizontalGap)))
             : (std::max)(1, static_cast<int>((availableWidth + horizontalGap) / (cellWidth + horizontalGap)));
@@ -1052,6 +1061,7 @@ namespace
             const ImVec2 cellMin = ImGui::GetCursorScreenPos();
             const bool clicked = ImGui::InvisibleButton("Item", ImVec2(cellWidth, cellHeight));
             const bool hovered = ImGui::IsItemHovered();
+            hoveredAnyItem |= hovered;
             if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
             {
                 const xlaunch::ItemDragPayload source{ state.selectedCategory, index };
@@ -1101,19 +1111,27 @@ namespace
             if (appearance.showNames || compactList)
             {
                 const std::string fullName = item.DisplayName();
-                const float textAreaWidth = compactList ? cellWidth - iconSize - 22.0f * g_dpiScale : cellWidth - 8.0f;
-                const std::string visibleName = Ellipsize(fullName, textAreaWidth);
+                const float textAreaWidth = (std::max)(0.0f,
+                    compactList ? cellWidth - iconSize - 22.0f * g_dpiScale : cellWidth - 8.0f);
+                const std::string visibleName = textAreaWidth > 2.0f ? Ellipsize(fullName, textAreaWidth) : std::string{};
                 const float textWidth = ImGui::CalcTextSize(visibleName.c_str()).x;
-                drawList->AddText(
-                    compactList
-                        ? ImVec2(iconMax.x + 8.0f * g_dpiScale, cellMin.y + (cellHeight - ImGui::GetTextLineHeight()) * 0.5f)
-                        : ImVec2(cellMin.x + (cellWidth - textWidth) * 0.5f, iconMax.y + 4.0f),
-                    IM_COL32(230, 233, 239, 255), visibleName.c_str());
+                if (!visibleName.empty())
+                    drawList->AddText(
+                        compactList
+                            ? ImVec2(iconMax.x + 8.0f * g_dpiScale, cellMin.y + (cellHeight - ImGui::GetTextLineHeight()) * 0.5f)
+                            : ImVec2(cellMin.x + (cellWidth - textWidth) * 0.5f, iconMax.y + 4.0f),
+                        IM_COL32(230, 233, 239, 255), visibleName.c_str());
             }
             if (hovered)
-                ImGui::SetTooltip("%s\n单击启动；Ctrl + 单击可连续启动", item.DisplayName().c_str());
+                ImGui::SetTooltip("%s\n%s", item.DisplayName().c_str(),
+                    appearance.itemActivationMode == xlaunch::ItemActivationMode::DoubleClick
+                        ? "双击启动；Ctrl + 双击可连续启动"
+                        : "单击启动；Ctrl + 单击可连续启动");
 
-            if (clicked && ImGui::GetDragDropPayload() == nullptr && ShowOperationResult(state, xlaunch::Launch(item), "启动"))
+            const bool activationRequested = appearance.itemActivationMode == xlaunch::ItemActivationMode::DoubleClick
+                ? hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)
+                : clicked;
+            if (activationRequested && ImGui::GetDragDropPayload() == nullptr && ShowOperationResult(state, xlaunch::Launch(item), "启动"))
             {
                 if (ImGui::GetIO().KeyCtrl && !state.config.window.keepVisible)
                     KeepMainWindowForMultipleLaunches(owner);
@@ -1171,6 +1189,41 @@ namespace
             ImGui::PopID();
         }
         ImGui::PopStyleVar();
+
+        if (!hoveredAnyItem && ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem) &&
+            ImGui::GetIO().KeyCtrl && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+        {
+            if (!g_shortcutFitActive)
+            {
+                if (GetWindowRect(owner, &g_beforeShortcutFitBounds))
+                {
+                    g_shortcutFitActive = true;
+                    state.config.appearance.fitWindowToGridAfterResize = true;
+                    g_lastSizingEdge = WMSZ_BOTTOMRIGHT;
+                    g_fitWidthAfterNextFrame = true;
+                    g_fitHeightAfterNextFrame = true;
+                    g_persistWindowSizeAfterFrame = true;
+                }
+            }
+            else
+            {
+                state.config.appearance.fitWindowToGridAfterResize = false;
+                g_fitWidthAfterNextFrame = false;
+                g_fitHeightAfterNextFrame = false;
+                const int restoredWidth = g_beforeShortcutFitBounds.right - g_beforeShortcutFitBounds.left;
+                const int restoredHeight = g_beforeShortcutFitBounds.bottom - g_beforeShortcutFitBounds.top;
+                SetWindowPos(owner, nullptr,
+                    g_beforeShortcutFitBounds.left, g_beforeShortcutFitBounds.top,
+                    restoredWidth, restoredHeight, SWP_NOZORDER | SWP_NOACTIVATE);
+                state.config.window.width = (std::max)(48,
+                    static_cast<int>(std::lround(restoredWidth / g_dpiScale)));
+                state.config.window.height = (std::max)(280,
+                    static_cast<int>(std::lround(restoredHeight / g_dpiScale)));
+                g_shortcutFitActive = false;
+            }
+            changed = true;
+            saveImmediately = true;
+        }
 
         if (ImGui::BeginPopupContextWindow("GridMenu", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
         {
@@ -1351,19 +1404,36 @@ namespace
         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::GetIO().KeyCtrl && ImGui::GetIO().MouseWheel != 0.0f)
         {
             const int direction = ImGui::GetIO().MouseWheel > 0.0f ? 1 : -1;
-            const int newSize = std::clamp(state.config.appearance.iconSize + direction * 8, 32, 64);
-            if (newSize != state.config.appearance.iconSize)
+            const bool compactList = state.selectedCategory < state.config.categories.size() &&
+                state.config.categories[state.selectedCategory].displayMode == xlaunch::CategoryDisplayMode::CompactList;
+            if (compactList)
             {
-                state.config.appearance.iconSize = newSize;
-                state.iconCache.Prefetch(
-                    state.config,
-                    static_cast<int>(std::lround(newSize * g_dpiScale)),
-                    true);
-                changed = true;
-                saveImmediately = true;
+                const float newWidth = std::clamp(
+                    state.config.appearance.compactColumnMinimumWidth + direction * 8.0f,
+                    36.0f, 400.0f);
+                if (newWidth != state.config.appearance.compactColumnMinimumWidth)
+                {
+                    state.config.appearance.compactColumnMinimumWidth = newWidth;
+                    changed = true;
+                    saveImmediately = true;
+                }
+            }
+            else
+            {
+                const int newSize = std::clamp(state.config.appearance.iconSize + direction * 8, 32, 64);
+                if (newSize != state.config.appearance.iconSize)
+                {
+                    state.config.appearance.iconSize = newSize;
+                    state.iconCache.Prefetch(
+                        state.config,
+                        static_cast<int>(std::lround(newSize * g_dpiScale)),
+                        true);
+                    changed = true;
+                    saveImmediately = true;
+                }
             }
         }
-        const float categoryWidth = (std::max)(120.0f * g_dpiScale, ImGui::GetContentRegionAvail().x - 62.0f * g_dpiScale);
+        const float categoryWidth = (std::max)(1.0f, ImGui::GetContentRegionAvail().x - 62.0f * g_dpiScale);
         xlaunch::ItemMoveRequest itemMove;
         state.categoryManager.Draw(
             owner,
@@ -1579,7 +1649,7 @@ LRESULT WINAPI WndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_GETMINMAXINFO:
     {
         auto* limits = reinterpret_cast<MINMAXINFO*>(lParam);
-        limits->ptMinTrackSize.x = static_cast<LONG>(300.0f * g_dpiScale);
+        limits->ptMinTrackSize.x = static_cast<LONG>(g_dynamicMinimumWidth);
         limits->ptMinTrackSize.y = static_cast<LONG>(280.0f * g_dpiScale);
         return 0;
     }
@@ -1731,7 +1801,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
     const std::wstring applicationTitle = Utf8ToWide(DisplayTitle(state.config));
     SetWindowTextW(window, applicationTitle.c_str());
     ApplyWindowOpacity(window, state.config.appearance.windowOpacity);
-    state.config.window.width = std::clamp(state.config.window.width, 300, 10000);
+    state.config.window.width = std::clamp(state.config.window.width, 48, 10000);
     state.config.window.height = std::clamp(state.config.window.height, 280, 10000);
     SetWindowPos(window, nullptr, 0, 0,
         static_cast<int>(state.config.window.width * dpiScale),
@@ -1903,7 +1973,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
             RECT bounds{};
             if (GetWindowRect(window, &bounds))
             {
-                state.config.window.width = (std::max)(300, static_cast<int>(std::lround((bounds.right - bounds.left) / g_dpiScale)));
+                state.config.window.width = (std::max)(48, static_cast<int>(std::lround((bounds.right - bounds.left) / g_dpiScale)));
                 state.config.window.height = (std::max)(280, static_cast<int>(std::lround((bounds.bottom - bounds.top) / g_dpiScale)));
                 state.MarkDirty();
                 state.SaveNow();

@@ -96,8 +96,7 @@ namespace xlaunch
         }
 
         const float footerHeight = ImGui::GetFrameHeightWithSpacing() + 8.0f;
-        ImGui::BeginChild("SettingsContent", ImVec2(0.0f, -footerHeight), ImGuiChildFlags_None,
-            ImGuiWindowFlags_AlwaysVerticalScrollbar);
+        ImGui::BeginChild("SettingsContent", ImVec2(0.0f, -footerHeight), ImGuiChildFlags_None);
         if (ImGui::BeginTabBar("SettingsTabs"))
         {
             if (ImGui::BeginTabItem("外观"))
@@ -155,6 +154,22 @@ namespace xlaunch
             ImGui::SameLine();
             ImGui::SetNextItemWidth(72.0f);
             changed |= ImGui::DragFloat("纵距", &config.appearance.verticalSpacing, 1.0f, 4.0f, 40.0f, "%.0f");
+            ImGui::SetNextItemWidth(92.0f);
+            if (ImGui::DragFloat("紧凑模式列最小宽度", &config.appearance.compactColumnMinimumWidth,
+                1.0f, 36.0f, 400.0f, "%.0f"))
+                changed = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("最小 36，仅保证能够显示一个图标；宽度过小时项目名称可能不可见。\n紧凑模式下可按 Ctrl + 鼠标滚轮快速调整。");
+
+            constexpr const char* activationNames[]{ "单击启动", "双击启动" };
+            int activationMode = static_cast<int>(config.appearance.itemActivationMode);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(120.0f);
+            if (ImGui::Combo("项目启动方式", &activationMode, activationNames, 2))
+            {
+                config.appearance.itemActivationMode = static_cast<ItemActivationMode>(activationMode);
+                changed = true;
+            }
             ImGui::SetNextItemWidth(180.0f);
             int opacityPercent = static_cast<int>(config.appearance.windowOpacity * 100.0f + 0.5f);
             if (ImGui::SliderInt("整体透明度", &opacityPercent, 35, 100, "%d%%"))
@@ -163,9 +178,10 @@ namespace xlaunch
                 changed = true;
                 actions.windowOpacityChanged = true;
             }
+            ImGui::SameLine();
             changed |= ImGui::Checkbox("调整窗口后自动贴合网格", &config.appearance.fitWindowToGridAfterResize);
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("横向贴合完整列，纵向贴合最近的完整可见行；剩余项目可滚动查看。");
+                ImGui::SetTooltip("横向贴合完整列，纵向贴合最近的完整可见行；也可在分类内容空白处按 Ctrl + 左键双击切换。");
             ImGui::EndTabItem();
             }
 

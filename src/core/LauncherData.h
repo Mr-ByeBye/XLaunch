@@ -31,6 +31,12 @@ namespace xlaunch
         CompactList
     };
 
+    enum class ItemActivationMode
+    {
+        SingleClick,
+        DoubleClick
+    };
+
     struct AppearanceSettings
     {
         bool showNames = true;
@@ -38,8 +44,10 @@ namespace xlaunch
         int iconSize = 48;
         float horizontalSpacing = 12.0f;
         float verticalSpacing = 12.0f;
+        float compactColumnMinimumWidth = 180.0f;
         float windowOpacity = 1.0f;
         bool fitWindowToGridAfterResize = true;
+        ItemActivationMode itemActivationMode = ItemActivationMode::SingleClick;
         CategorySwitchMode categorySwitchMode = CategorySwitchMode::Click;
         int categoryHoverDelayMs = 250;
     };
@@ -240,6 +248,7 @@ namespace xlaunch
         config.appearance.iconSize = std::clamp(config.appearance.iconSize, 32, 64);
         config.appearance.horizontalSpacing = std::clamp(config.appearance.horizontalSpacing, 4.0f, 40.0f);
         config.appearance.verticalSpacing = std::clamp(config.appearance.verticalSpacing, 4.0f, 40.0f);
+        config.appearance.compactColumnMinimumWidth = std::clamp(config.appearance.compactColumnMinimumWidth, 36.0f, 400.0f);
         config.appearance.windowOpacity = std::clamp(config.appearance.windowOpacity, 0.35f, 1.0f);
         config.appearance.categoryHoverDelayMs = std::clamp(config.appearance.categoryHoverDelayMs, 50, 2000);
         config.backup.keepCount = std::clamp(config.backup.keepCount, 1, 50);
