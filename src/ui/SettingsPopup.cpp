@@ -115,23 +115,6 @@ namespace xlaunch
             ImGui::SameLine();
             changed |= ImGui::Checkbox("显示边框", &config.appearance.showBorders);
 
-            constexpr const char* categorySwitchNames[]{ "鼠标点击", "鼠标悬停" };
-            int categorySwitchMode = static_cast<int>(config.appearance.categorySwitchMode);
-            ImGui::SetNextItemWidth(140.0f);
-            if (ImGui::Combo("分类切换", &categorySwitchMode, categorySwitchNames, 2))
-            {
-                config.appearance.categorySwitchMode = static_cast<CategorySwitchMode>(categorySwitchMode);
-                changed = true;
-            }
-            if (config.appearance.categorySwitchMode == CategorySwitchMode::Hover)
-            {
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(85.0f);
-                if (ImGui::DragInt("悬停延迟（毫秒）", &config.appearance.categoryHoverDelayMs,
-                    10.0f, 50, 2000, "%d ms"))
-                    changed = true;
-            }
-
             ImGui::Spacing();
             SectionTitle("图标布局");
             constexpr int sizes[]{ 32, 40, 48, 56, 64 };
@@ -155,11 +138,11 @@ namespace xlaunch
             ImGui::SetNextItemWidth(72.0f);
             changed |= ImGui::DragFloat("纵距", &config.appearance.verticalSpacing, 1.0f, 4.0f, 40.0f, "%.0f");
             ImGui::SetNextItemWidth(92.0f);
-            if (ImGui::DragFloat("紧凑模式列最小宽度", &config.appearance.compactColumnMinimumWidth,
+            if (ImGui::DragFloat("紧凑模式列宽度", &config.appearance.compactColumnMinimumWidth,
                 1.0f, 36.0f, 400.0f, "%.0f"))
                 changed = true;
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("最小 36，仅保证能够显示一个图标；宽度过小时项目名称可能不可见。\n紧凑模式下可按 Ctrl + 鼠标滚轮快速调整。");
+                ImGui::SetTooltip("最小 36，仅保证能够显示一个图标；宽度过小时项目名称可能不可见。\n紧凑模式下可按 Ctrl + 鼠标滚轮平滑调整。");
 
             constexpr const char* activationNames[]{ "单击启动", "双击启动" };
             int activationMode = static_cast<int>(config.appearance.itemActivationMode);
@@ -178,10 +161,77 @@ namespace xlaunch
                 changed = true;
                 actions.windowOpacityChanged = true;
             }
-            ImGui::SameLine();
-            changed |= ImGui::Checkbox("调整窗口后自动贴合网格", &config.appearance.fitWindowToGridAfterResize);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("横向贴合完整列，纵向贴合最近的完整可见行；也可在分类内容空白处按 Ctrl + 左键双击切换。");
+            ImGui::EndTabItem();
+            }
+
+            if (ImGui::BeginTabItem("分类栏布局"))
+            {
+            SectionTitle("分类栏位置");
+            constexpr const char* layoutNames[]{ "顶部单行", "顶部自动换行", "左侧", "右侧" };
+            constexpr float categorySelectionWidth = 130.0f;
+            constexpr float categoryValueWidth = 86.0f;
+            int layout = static_cast<int>(config.appearance.categoryBarLayout);
+            ImGui::SetNextItemWidth(categorySelectionWidth);
+            if (ImGui::Combo("布局", &layout, layoutNames, 4))
+            {
+                config.appearance.categoryBarLayout = static_cast<CategoryBarLayout>(layout);
+                changed = true;
+            }
+
+            const bool sideLayout = config.appearance.categoryBarLayout == CategoryBarLayout::Left ||
+                config.appearance.categoryBarLayout == CategoryBarLayout::Right;
+            if (sideLayout)
+            {
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(categoryValueWidth);
+                if (ImGui::DragFloat("侧边栏最大宽度", &config.appearance.categorySidebarMaximumWidth,
+                    1.0f, 32.0f, 200.0f, "%.0f"))
+                    changed = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("实际宽度还会受主窗口宽度限制，确保项目区域至少能够显示一个图标。");
+
+                constexpr const char* directionNames[]{ "横向文字", "竖向文字" };
+                int direction = static_cast<int>(config.appearance.categoryBarTextDirection);
+                ImGui::SetNextItemWidth(categorySelectionWidth);
+                if (ImGui::Combo("文字方向", &direction, directionNames, 2))
+                {
+                    config.appearance.categoryBarTextDirection = static_cast<CategoryBarTextDirection>(direction);
+                    changed = true;
+                }
+                if (config.appearance.categoryBarTextDirection == CategoryBarTextDirection::Vertical)
+                {
+                    ImGui::SameLine();
+                    constexpr const char* readingNames[]{ "从上到下", "从下到上" };
+                    int reading = static_cast<int>(config.appearance.categoryBarVerticalReading);
+                    ImGui::SetNextItemWidth(categorySelectionWidth);
+                    if (ImGui::Combo("阅读方向", &reading, readingNames, 2))
+                    {
+                        config.appearance.categoryBarVerticalReading =
+                            static_cast<CategoryBarVerticalReading>(reading);
+                        changed = true;
+                    }
+                }
+            }
+
+            ImGui::Spacing();
+            SectionTitle("分类切换");
+            constexpr const char* categorySwitchNames[]{ "鼠标点击", "鼠标悬停" };
+            int categorySwitchMode = static_cast<int>(config.appearance.categorySwitchMode);
+            ImGui::SetNextItemWidth(categorySelectionWidth);
+            if (ImGui::Combo("切换方式", &categorySwitchMode, categorySwitchNames, 2))
+            {
+                config.appearance.categorySwitchMode = static_cast<CategorySwitchMode>(categorySwitchMode);
+                changed = true;
+            }
+            if (config.appearance.categorySwitchMode == CategorySwitchMode::Hover)
+            {
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(categoryValueWidth);
+                if (ImGui::DragInt("悬停延迟（毫秒）", &config.appearance.categoryHoverDelayMs,
+                    10.0f, 50, 2000, "%d ms"))
+                    changed = true;
+            }
+            ImGui::TextDisabled("顶部单行支持横向滚动；顶部换行会根据窗口宽度自动增加行数。");
             ImGui::EndTabItem();
             }
 

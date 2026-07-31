@@ -287,6 +287,9 @@ namespace xlaunch
         for (int size : kCachedSizes)
             if (size != config.appearance.iconSize)
                 Prefetch(config, scaled(size));
+        // Compact lists always render 24 px icons. Keep that size in the same
+        // persistent cache instead of waiting for the first compact-mode frame.
+        Prefetch(config, scaled(24));
     }
 
     void IconCache::Queue(const LaunchItem& item, int pixelSize, const std::string& signature, bool highPriority)

@@ -2,7 +2,6 @@
 
 #include <fstream>
 #include <chrono>
-#include <shlobj.h>
 #include <windows.h>
 
 #include "json.hpp"
@@ -33,16 +32,6 @@ namespace xlaunch
                 return std::filesystem::current_path();
             executablePath.resize(length);
             return std::filesystem::path(executablePath).parent_path();
-        }
-
-        std::filesystem::path LegacyConfigPath()
-        {
-            PWSTR localAppData = nullptr;
-            if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &localAppData)))
-                return {};
-            const std::filesystem::path result = std::filesystem::path(localAppData) / L"XLaunch" / L"xlaunch.json";
-            CoTaskMemFree(localAppData);
-            return result;
         }
 
         ItemType ReadItemType(const json& value, const std::string& target)
@@ -209,24 +198,6 @@ namespace xlaunch
     {
         sourceWasCorrupt_ = false;
         LoadResult result{ MakeDefaultConfig(), {} };
-        if (!std::filesystem::exists(configPath_) && configPath_ == DefaultConfigPath())
-        {
-            const std::filesystem::path legacyPath = LegacyConfigPath();
-            if (!legacyPath.empty() && std::filesystem::exists(legacyPath))
-            {
-                std::error_code directoryError;
-                std::filesystem::create_directories(configPath_.parent_path(), directoryError);
-                std::error_code copyError;
-                if (!directoryError)
-                    std::filesystem::copy_file(legacyPath, configPath_, std::filesystem::copy_options::none, copyError);
-                if (directoryError || copyError)
-                {
-                    const std::error_code& migrationError = directoryError ? directoryError : copyError;
-                    result.error = "无法将旧配置迁移到绿色版 config 目录：" + migrationError.message();
-                    return result;
-                }
-            }
-        }
         if (!std::filesystem::exists(configPath_))
             return result;
 
@@ -245,18 +216,27 @@ namespace xlaunch
             if (const auto appearance = root.find("appearance"); appearance != root.end() && appearance->is_object())
             {
                 config.appearance.showNames = appearance->value("showNames", true);
-                config.appearance.showBorders = appearance->value("showBorders", false);
+                config.appearance.showBorders = appearance->value("showBorders", true);
                 config.appearance.iconSize = appearance->value("iconSize", 48);
-                config.appearance.horizontalSpacing = appearance->value("horizontalSpacing", 12.0f);
-                config.appearance.verticalSpacing = appearance->value("verticalSpacing", 12.0f);
+                config.appearance.horizontalSpacing = appearance->value("horizontalSpacing", 4.0f);
+                config.appearance.verticalSpacing = appearance->value("verticalSpacing", 4.0f);
                 config.appearance.compactColumnMinimumWidth = appearance->value("compactColumnMinimumWidth", 180.0f);
                 config.appearance.windowOpacity = appearance->value("windowOpacity", 1.0f);
-                config.appearance.fitWindowToGridAfterResize = appearance->value("fitWindowToGridAfterResize", true);
                 config.appearance.itemActivationMode = appearance->value("itemActivationMode", "singleClick") == "doubleClick"
                     ? ItemActivationMode::DoubleClick : ItemActivationMode::SingleClick;
-                config.appearance.categorySwitchMode = appearance->value("categorySwitchMode", "click") == "hover"
+                config.appearance.categorySwitchMode = appearance->value("categorySwitchMode", "hover") == "hover"
                     ? CategorySwitchMode::Hover : CategorySwitchMode::Click;
                 config.appearance.categoryHoverDelayMs = appearance->value("categoryHoverDelayMs", 250);
+                const std::string categoryBarLayout = appearance->value("categoryBarLayout", "topSingleLine");
+                if (categoryBarLayout == "topWrap") config.appearance.categoryBarLayout = CategoryBarLayout::TopWrap;
+                else if (categoryBarLayout == "left") config.appearance.categoryBarLayout = CategoryBarLayout::Left;
+                else if (categoryBarLayout == "right") config.appearance.categoryBarLayout = CategoryBarLayout::Right;
+                else config.appearance.categoryBarLayout = CategoryBarLayout::TopSingleLine;
+                config.appearance.categorySidebarMaximumWidth = appearance->value("categorySidebarMaximumWidth", 80.0f);
+                config.appearance.categoryBarTextDirection = appearance->value("categoryBarTextDirection", "horizontal") == "vertical"
+                    ? CategoryBarTextDirection::Vertical : CategoryBarTextDirection::Horizontal;
+                config.appearance.categoryBarVerticalReading = appearance->value("categoryBarVerticalReading", "topToBottom") == "bottomToTop"
+                    ? CategoryBarVerticalReading::BottomToTop : CategoryBarVerticalReading::TopToBottom;
             }
 
             if (const auto window = root.find("window"); window != root.end() && window->is_object())
@@ -264,24 +244,12 @@ namespace xlaunch
                 config.window.title = window->value("title", "XLaunch");
                 config.window.centerTitle = window->value("centerTitle", true);
                 config.window.keepVisible = window->value("keepVisible", false);
-                config.window.startupPosition = ReadStartupPosition(window->value("startupPosition", "center"));
+                config.window.startupPosition = ReadStartupPosition(window->value("startupPosition", "cursor"));
                 config.window.corner = ReadScreenCorner(window->value("corner", "topRight"));
                 config.window.customX = window->value("customX", 100);
                 config.window.customY = window->value("customY", 100);
                 config.window.width = window->value("width", 760);
                 config.window.height = window->value("height", 500);
-                if (const auto position = window->find("settingsPosition"); position != window->end() && position->is_object())
-                {
-                    config.window.settingsPosition.saved = position->value("saved", false);
-                    config.window.settingsPosition.x = position->value("x", 0);
-                    config.window.settingsPosition.y = position->value("y", 0);
-                }
-                if (const auto position = window->find("itemEditorPosition"); position != window->end() && position->is_object())
-                {
-                    config.window.itemEditorPosition.saved = position->value("saved", false);
-                    config.window.itemEditorPosition.x = position->value("x", 0);
-                    config.window.itemEditorPosition.y = position->value("y", 0);
-                }
             }
 
             if (const auto hotkey = root.find("hotkey"); hotkey != root.end() && hotkey->is_object())
@@ -298,7 +266,7 @@ namespace xlaunch
                 else if (trigger == "ctrlShiftSpace") config.hotkey.modifiers = HotkeyControl | HotkeyShift;
                 else if (trigger == "altSpace") config.hotkey.modifiers = HotkeyAlt;
             }
-            config.startWithWindows = root.value("startWithWindows", false);
+            config.startWithWindows = root.value("startWithWindows", true);
             if (const auto backup = root.find("backup"); backup != root.end() && backup->is_object())
             {
                 config.backup.automatic = backup->value("automatic", true);
@@ -375,10 +343,15 @@ namespace xlaunch
                 { "verticalSpacing", config.appearance.verticalSpacing },
                 { "compactColumnMinimumWidth", config.appearance.compactColumnMinimumWidth },
                 { "windowOpacity", config.appearance.windowOpacity },
-                { "fitWindowToGridAfterResize", config.appearance.fitWindowToGridAfterResize },
                 { "itemActivationMode", config.appearance.itemActivationMode == ItemActivationMode::DoubleClick ? "doubleClick" : "singleClick" },
                 { "categorySwitchMode", config.appearance.categorySwitchMode == CategorySwitchMode::Hover ? "hover" : "click" },
                 { "categoryHoverDelayMs", config.appearance.categoryHoverDelayMs }
+                ,{ "categoryBarLayout", config.appearance.categoryBarLayout == CategoryBarLayout::TopWrap ? "topWrap" :
+                    config.appearance.categoryBarLayout == CategoryBarLayout::Left ? "left" :
+                    config.appearance.categoryBarLayout == CategoryBarLayout::Right ? "right" : "topSingleLine" }
+                ,{ "categorySidebarMaximumWidth", config.appearance.categorySidebarMaximumWidth }
+                ,{ "categoryBarTextDirection", config.appearance.categoryBarTextDirection == CategoryBarTextDirection::Vertical ? "vertical" : "horizontal" }
+                ,{ "categoryBarVerticalReading", config.appearance.categoryBarVerticalReading == CategoryBarVerticalReading::BottomToTop ? "bottomToTop" : "topToBottom" }
             };
             root["window"] = {
                 { "title", config.window.title },
@@ -389,17 +362,7 @@ namespace xlaunch
                 { "customX", config.window.customX },
                 { "customY", config.window.customY },
                 { "width", config.window.width },
-                { "height", config.window.height },
-                { "settingsPosition", {
-                    { "saved", config.window.settingsPosition.saved },
-                    { "x", config.window.settingsPosition.x },
-                    { "y", config.window.settingsPosition.y }
-                } },
-                { "itemEditorPosition", {
-                    { "saved", config.window.itemEditorPosition.saved },
-                    { "x", config.window.itemEditorPosition.x },
-                    { "y", config.window.itemEditorPosition.y }
-                } }
+                { "height", config.window.height }
             };
             root["hotkey"] = {
                 { "enabled", config.hotkey.enabled },

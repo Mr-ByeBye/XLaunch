@@ -22,6 +22,15 @@ int main()
     const std::filesystem::path defaultPath = xlaunch::ConfigManager::DefaultConfigPath();
     const bool defaultPathIsPortable = defaultPath.filename() == L"xlaunch.json" &&
         defaultPath.parent_path().filename() == L"config";
+    const xlaunch::AppConfig defaults = xlaunch::MakeDefaultConfig();
+    const bool requestedDefaults =
+        defaults.appearance.showBorders &&
+        std::abs(defaults.appearance.horizontalSpacing - 4.0f) < 0.001f &&
+        std::abs(defaults.appearance.verticalSpacing - 4.0f) < 0.001f &&
+        defaults.appearance.categorySwitchMode == xlaunch::CategorySwitchMode::Hover &&
+        defaults.appearance.categoryHoverDelayMs == 250 &&
+        defaults.window.startupPosition == xlaunch::StartupPositionMode::Cursor &&
+        defaults.startWithWindows;
     const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
     const std::filesystem::path directory =
         std::filesystem::temp_directory_path() / ("XLaunchConfigTest-" + std::to_string(suffix));
@@ -69,8 +78,11 @@ int main()
     config.appearance.verticalSpacing = 20.0f;
     config.appearance.compactColumnMinimumWidth = 72.0f;
     config.appearance.windowOpacity = 0.72f;
-    config.appearance.fitWindowToGridAfterResize = true;
     config.appearance.itemActivationMode = xlaunch::ItemActivationMode::DoubleClick;
+    config.appearance.categoryBarLayout = xlaunch::CategoryBarLayout::Right;
+    config.appearance.categorySidebarMaximumWidth = 96.0f;
+    config.appearance.categoryBarTextDirection = xlaunch::CategoryBarTextDirection::Vertical;
+    config.appearance.categoryBarVerticalReading = xlaunch::CategoryBarVerticalReading::BottomToTop;
     config.appearance.categorySwitchMode = xlaunch::CategorySwitchMode::Hover;
     config.appearance.categoryHoverDelayMs = 420;
     config.window.startupPosition = xlaunch::StartupPositionMode::Custom;
@@ -95,6 +107,7 @@ int main()
 
     std::string error;
     bool success = Check(defaultPathIsPortable, "默认配置未位于程序目录的 config 子目录");
+    success &= Check(requestedDefaults, "首次运行默认设置不正确");
     success &= Check(manager.Save(config, error), error.c_str());
     const xlaunch::ConfigManager::LoadResult loaded = manager.Load();
     success &= Check(loaded.error.empty(), loaded.error.c_str());
@@ -120,8 +133,12 @@ int main()
         "紧凑模式列最小宽度未保存");
     success &= Check(loaded.config.appearance.itemActivationMode == xlaunch::ItemActivationMode::DoubleClick,
         "项目启动方式未保存");
+    success &= Check(loaded.config.appearance.categoryBarLayout == xlaunch::CategoryBarLayout::Right &&
+        std::abs(loaded.config.appearance.categorySidebarMaximumWidth - 96.0f) < 0.001f &&
+        loaded.config.appearance.categoryBarTextDirection == xlaunch::CategoryBarTextDirection::Vertical &&
+        loaded.config.appearance.categoryBarVerticalReading == xlaunch::CategoryBarVerticalReading::BottomToTop,
+        "分类栏布局设置未保存");
     success &= Check(std::abs(loaded.config.appearance.windowOpacity - 0.72f) < 0.001f, "窗口透明度未保存");
-    success &= Check(loaded.config.appearance.fitWindowToGridAfterResize, "自动贴合网格设置未保存");
     success &= Check(loaded.config.appearance.categorySwitchMode == xlaunch::CategorySwitchMode::Hover &&
         loaded.config.appearance.categoryHoverDelayMs == 420, "分类悬停切换设置未保存");
     success &= Check(loaded.config.window.startupPosition == xlaunch::StartupPositionMode::Custom, "启动位置模式未保存");

@@ -37,19 +37,42 @@ namespace xlaunch
         DoubleClick
     };
 
+    enum class CategoryBarLayout
+    {
+        TopSingleLine,
+        TopWrap,
+        Left,
+        Right
+    };
+
+    enum class CategoryBarTextDirection
+    {
+        Horizontal,
+        Vertical
+    };
+
+    enum class CategoryBarVerticalReading
+    {
+        TopToBottom,
+        BottomToTop
+    };
+
     struct AppearanceSettings
     {
         bool showNames = true;
-        bool showBorders = false;
+        bool showBorders = true;
         int iconSize = 48;
-        float horizontalSpacing = 12.0f;
-        float verticalSpacing = 12.0f;
+        float horizontalSpacing = 4.0f;
+        float verticalSpacing = 4.0f;
         float compactColumnMinimumWidth = 180.0f;
         float windowOpacity = 1.0f;
-        bool fitWindowToGridAfterResize = true;
         ItemActivationMode itemActivationMode = ItemActivationMode::SingleClick;
-        CategorySwitchMode categorySwitchMode = CategorySwitchMode::Click;
+        CategorySwitchMode categorySwitchMode = CategorySwitchMode::Hover;
         int categoryHoverDelayMs = 250;
+        CategoryBarLayout categoryBarLayout = CategoryBarLayout::TopSingleLine;
+        float categorySidebarMaximumWidth = 80.0f;
+        CategoryBarTextDirection categoryBarTextDirection = CategoryBarTextDirection::Horizontal;
+        CategoryBarVerticalReading categoryBarVerticalReading = CategoryBarVerticalReading::TopToBottom;
     };
 
     enum class StartupPositionMode
@@ -68,26 +91,17 @@ namespace xlaunch
         BottomRight
     };
 
-    struct ToolWindowPosition
-    {
-        bool saved = false;
-        int x = 0;
-        int y = 0;
-    };
-
     struct WindowSettings
     {
         std::string title = "XLaunch";
         bool centerTitle = true;
         bool keepVisible = false;
-        StartupPositionMode startupPosition = StartupPositionMode::Center;
+        StartupPositionMode startupPosition = StartupPositionMode::Cursor;
         ScreenCorner corner = ScreenCorner::TopRight;
         int customX = 100;
         int customY = 100;
         int width = 760;
         int height = 500;
-        ToolWindowPosition settingsPosition;
-        ToolWindowPosition itemEditorPosition;
     };
 
     enum class HotkeyTrigger
@@ -162,7 +176,7 @@ namespace xlaunch
         AppearanceSettings appearance;
         WindowSettings window;
         HotkeySettings hotkey;
-        bool startWithWindows = false;
+        bool startWithWindows = true;
         BackupSettings backup;
         std::vector<Category> categories;
     };
@@ -251,6 +265,7 @@ namespace xlaunch
         config.appearance.compactColumnMinimumWidth = std::clamp(config.appearance.compactColumnMinimumWidth, 36.0f, 400.0f);
         config.appearance.windowOpacity = std::clamp(config.appearance.windowOpacity, 0.35f, 1.0f);
         config.appearance.categoryHoverDelayMs = std::clamp(config.appearance.categoryHoverDelayMs, 50, 2000);
+        config.appearance.categorySidebarMaximumWidth = std::clamp(config.appearance.categorySidebarMaximumWidth, 32.0f, 200.0f);
         config.backup.keepCount = std::clamp(config.backup.keepCount, 1, 50);
         config.hotkey.modifiers &= HotkeyControl | HotkeyAlt | HotkeyShift | HotkeyWin;
         if (config.hotkey.virtualKey < 0x08 || config.hotkey.virtualKey > 0xFE)

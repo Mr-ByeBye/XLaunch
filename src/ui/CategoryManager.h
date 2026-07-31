@@ -30,7 +30,7 @@ namespace xlaunch
         void OpenAdd() { addRequested_ = true; }
         void Draw(HWND owner, AppConfig& config, std::size_t& selectedCategory, bool& changed,
             ItemMoveRequest& itemMove, bool externalDrag, std::size_t externalTargetCategory,
-            float width, float dpiScale);
+            float width, float height, float dpiScale, bool& keepVisible, bool& saveImmediately);
         [[nodiscard]] std::size_t HitTestCategory(POINTL screenPoint, std::size_t fallback) const;
 
     private:
@@ -44,6 +44,8 @@ namespace xlaunch
         bool focusRenameInput_ = false;
         int hoveredCategory_ = -1;
         double hoverStartTime_ = 0.0;
+        float horizontalScroll_ = 0.0f;
+        float verticalScroll_ = 0.0f;
         std::array<char, 128> nameBuffer_{};
         std::string validationError_;
         std::vector<RECT> categoryRects_;
