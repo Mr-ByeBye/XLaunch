@@ -30,7 +30,8 @@ namespace xlaunch
         void OpenAdd() { addRequested_ = true; }
         void Draw(HWND owner, AppConfig& config, std::size_t& selectedCategory, bool& changed,
             ItemMoveRequest& itemMove, bool externalDrag, std::size_t externalTargetCategory,
-            float width, float height, float dpiScale, bool& keepVisible, bool& saveImmediately);
+            float width, float height, float dpiScale, bool temporaryPinned,
+            bool& keepVisible, bool& saveImmediately);
         [[nodiscard]] std::size_t HitTestCategory(POINTL screenPoint, std::size_t fallback) const;
 
     private:

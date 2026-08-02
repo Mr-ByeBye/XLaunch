@@ -30,6 +30,7 @@ int main()
         defaults.appearance.categorySwitchMode == xlaunch::CategorySwitchMode::Hover &&
         defaults.appearance.categoryHoverDelayMs == 250 &&
         defaults.window.startupPosition == xlaunch::StartupPositionMode::Cursor &&
+        defaults.window.temporaryPinKey == xlaunch::TemporaryPinKey::Control &&
         defaults.startWithWindows;
     const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
     const std::filesystem::path directory =
@@ -87,6 +88,7 @@ int main()
     config.appearance.categoryHoverDelayMs = 420;
     config.window.startupPosition = xlaunch::StartupPositionMode::Custom;
     config.window.corner = xlaunch::ScreenCorner::BottomRight;
+    config.window.temporaryPinKey = xlaunch::TemporaryPinKey::Shift;
     config.window.customX = 321;
     config.window.customY = 654;
     config.window.width = 888;
@@ -143,6 +145,8 @@ int main()
         loaded.config.appearance.categoryHoverDelayMs == 420, "分类悬停切换设置未保存");
     success &= Check(loaded.config.window.startupPosition == xlaunch::StartupPositionMode::Custom, "启动位置模式未保存");
     success &= Check(loaded.config.window.corner == xlaunch::ScreenCorner::BottomRight, "屏幕角落未保存");
+    success &= Check(loaded.config.window.temporaryPinKey == xlaunch::TemporaryPinKey::Shift,
+        "连续启动临时钉住按键未保存");
     success &= Check(loaded.config.window.customX == 321 && loaded.config.window.customY == 654, "自定义窗口位置未保存");
     success &= Check(loaded.config.window.width == 888 && loaded.config.window.height == 666, "窗口尺寸未保存");
     success &= Check(loaded.config.window.title == "我的启动器" && loaded.config.window.centerTitle && loaded.config.window.keepVisible,

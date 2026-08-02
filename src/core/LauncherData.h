@@ -91,6 +91,14 @@ namespace xlaunch
         BottomRight
     };
 
+    enum class TemporaryPinKey
+    {
+        Control,
+        Shift,
+        Alt,
+        Win
+    };
+
     struct WindowSettings
     {
         std::string title = "XLaunch";
@@ -98,6 +106,7 @@ namespace xlaunch
         bool keepVisible = false;
         StartupPositionMode startupPosition = StartupPositionMode::Cursor;
         ScreenCorner corner = ScreenCorner::TopRight;
+        TemporaryPinKey temporaryPinKey = TemporaryPinKey::Control;
         int customX = 100;
         int customY = 100;
         int width = 760;

@@ -307,6 +307,19 @@ namespace xlaunch
             }
 
             ImGui::Spacing();
+            SectionTitle("连续启动");
+            constexpr const char* temporaryPinKeyNames[]{ "Ctrl", "Shift", "Alt", "Win" };
+            int temporaryPinKey = static_cast<int>(config.window.temporaryPinKey);
+            ImGui::SetNextItemWidth(100.0f);
+            if (ImGui::Combo("临时钉住按键", &temporaryPinKey, temporaryPinKeyNames, 4))
+            {
+                config.window.temporaryPinKey = static_cast<TemporaryPinKey>(temporaryPinKey);
+                changed = true;
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("按住时可连续启动项目并保持主界面置顶");
+
+            ImGui::Spacing();
             SectionTitle("主界面启动位置");
             constexpr const char* positionNames[]{ "屏幕正中", "屏幕角落", "用户自定义", "鼠标位置" };
             int position = static_cast<int>(config.window.startupPosition);

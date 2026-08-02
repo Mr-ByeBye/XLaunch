@@ -32,18 +32,26 @@ namespace xlaunch
             }
         }
 
-        bool DrawPinIconButton(bool pinned, float size)
+        bool DrawPinIconButton(bool pinned, bool temporaryPinned, float size)
         {
             const bool clicked = ImGui::InvisibleButton("##PinCategoryBar", ImVec2(size, size));
             const ImVec2 minimum = ImGui::GetItemRectMin();
             const ImVec2 maximum = ImGui::GetItemRectMax();
             ImDrawList* drawList = ImGui::GetWindowDrawList();
-            const ImU32 fill = ImGui::GetColorU32(ImGui::IsItemHovered() ? ImGuiCol_ButtonHovered :
-                pinned ? ImGuiCol_ButtonActive : ImGuiCol_Button);
+            const bool temporaryOnly = temporaryPinned && !pinned;
+            ImU32 fill = ImGui::GetColorU32(ImGuiCol_Button);
+            if (ImGui::IsItemHovered())
+                fill = ImGui::GetColorU32(ImGuiCol_ButtonHovered);
+            else if (temporaryOnly)
+                fill = ImGui::GetColorU32(ImVec4(0.76f, 0.43f, 0.12f, 1.0f));
+            else if (pinned)
+                fill = ImGui::GetColorU32(ImGuiCol_ButtonActive);
             drawList->AddRectFilled(minimum, maximum, fill, 3.0f);
             drawList->AddRect(minimum, maximum, ImGui::GetColorU32(ImGuiCol_Border), 3.0f);
             const ImVec2 center{ (minimum.x + maximum.x) * 0.5f, (minimum.y + maximum.y) * 0.5f };
-            const ImU32 iconColor = ImGui::GetColorU32(ImGuiCol_Text);
+            const ImU32 iconColor = temporaryOnly
+                ? ImGui::GetColorU32(ImVec4(1.0f, 0.91f, 0.68f, 1.0f))
+                : ImGui::GetColorU32(ImGuiCol_Text);
             const float scale = size / 32.0f;
             drawList->AddRectFilled(
                 ImVec2(center.x - 6.0f * scale, center.y - 7.0f * scale),
@@ -57,7 +65,9 @@ namespace xlaunch
                 ImVec2(center.x, center.y + 3.0f * scale),
                 ImVec2(center.x, center.y + 9.0f * scale), iconColor, 1.5f * scale);
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(pinned ? "取消钉住" : "钉住");
+                ImGui::SetTooltip(temporaryPinned && !pinned
+                    ? "临时钉住（松开按键后取消置顶）"
+                    : pinned ? "取消钉住" : "钉住");
             return clicked;
         }
     }
@@ -94,7 +104,8 @@ namespace xlaunch
 
     void CategoryManager::Draw(HWND owner, AppConfig& config, std::size_t& selectedCategory, bool& changed,
         ItemMoveRequest& itemMove, bool externalDrag, std::size_t externalTargetCategory,
-        float width, float height, float dpiScale, bool& keepVisible, bool& saveImmediately)
+        float width, float height, float dpiScale, bool temporaryPinned,
+        bool& keepVisible, bool& saveImmediately)
     {
         int reorderSource = -1;
         int reorderTarget = -1;
@@ -398,7 +409,7 @@ namespace xlaunch
                 ImGui::SameLine(0.0f, spacing);
             else
                 ImGui::SetCursorPosX(std::floor((width - toolButtonSize) * 0.5f));
-            if (DrawPinIconButton(keepVisible, toolButtonSize))
+            if (DrawPinIconButton(keepVisible, temporaryPinned, toolButtonSize))
             {
                 keepVisible = !keepVisible;
                 SetWindowPos(owner, keepVisible ? HWND_TOPMOST : HWND_NOTOPMOST,

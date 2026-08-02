@@ -86,6 +86,25 @@ namespace xlaunch
             }
         }
 
+        TemporaryPinKey ReadTemporaryPinKey(const std::string& value)
+        {
+            if (value == "shift") return TemporaryPinKey::Shift;
+            if (value == "alt") return TemporaryPinKey::Alt;
+            if (value == "win") return TemporaryPinKey::Win;
+            return TemporaryPinKey::Control;
+        }
+
+        const char* TemporaryPinKeyName(TemporaryPinKey key)
+        {
+            switch (key)
+            {
+            case TemporaryPinKey::Shift: return "shift";
+            case TemporaryPinKey::Alt: return "alt";
+            case TemporaryPinKey::Win: return "win";
+            default: return "ctrl";
+            }
+        }
+
         HotkeyTrigger ReadHotkeyTrigger(const std::string& value)
         {
             return value == "keyboard" ? HotkeyTrigger::Keyboard : HotkeyTrigger::MouseGesture;
@@ -246,6 +265,7 @@ namespace xlaunch
                 config.window.keepVisible = window->value("keepVisible", false);
                 config.window.startupPosition = ReadStartupPosition(window->value("startupPosition", "cursor"));
                 config.window.corner = ReadScreenCorner(window->value("corner", "topRight"));
+                config.window.temporaryPinKey = ReadTemporaryPinKey(window->value("temporaryPinKey", "ctrl"));
                 config.window.customX = window->value("customX", 100);
                 config.window.customY = window->value("customY", 100);
                 config.window.width = window->value("width", 760);
@@ -359,6 +379,7 @@ namespace xlaunch
                 { "keepVisible", config.window.keepVisible },
                 { "startupPosition", StartupPositionName(config.window.startupPosition) },
                 { "corner", ScreenCornerName(config.window.corner) },
+                { "temporaryPinKey", TemporaryPinKeyName(config.window.temporaryPinKey) },
                 { "customX", config.window.customX },
                 { "customY", config.window.customY },
                 { "width", config.window.width },

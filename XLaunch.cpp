@@ -56,13 +56,15 @@ namespace
     bool g_trackingClientMouse = false;
     bool g_trackingNonClientMouse = false;
     bool g_autoHideSuppressed = false;
-    bool g_keepAboveUntilMouseLeaves = false;
+    bool g_temporaryPinActive = false;
+    int g_temporaryPinReleasePolls = 0;
     constexpr UINT_PTR kMouseLeaveHideTimerId = 0x584C;
     constexpr UINT_PTR kDeferredHideTimerId = 0x584D;
+    constexpr UINT_PTR kTemporaryPinTimerId = 0x584E;
     bool g_deferredHideOutsideOnly = false;
 
     constexpr ImVec4 kClearColor{ 0.055f, 0.063f, 0.078f, 1.0f };
-    constexpr const char* kVersion = "v2026073122";
+    constexpr const char* kVersion = "v2026080302";
     std::wstring Utf8ToWide(const std::string& value);
     void ApplyDarkTheme(float dpiScale);
     LRESULT WINAPI ToolWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -159,16 +161,17 @@ namespace
     {
         KillTimer(window, kMouseLeaveHideTimerId);
         KillTimer(window, kDeferredHideTimerId);
+        KillTimer(window, kTemporaryPinTimerId);
         g_trackingClientMouse = false;
         g_trackingNonClientMouse = false;
-        g_keepAboveUntilMouseLeaves = false;
+        g_temporaryPinActive = false;
+        g_temporaryPinReleasePolls = 0;
         ShowWindow(window, SW_HIDE);
         SetProcessWorkingSetSize(GetCurrentProcess(), static_cast<SIZE_T>(-1), static_cast<SIZE_T>(-1));
     }
 
     void KeepMainWindowForMultipleLaunches(HWND window)
     {
-        g_keepAboveUntilMouseLeaves = true;
         SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE);
         SetForegroundWindow(window);
@@ -183,6 +186,81 @@ namespace
         KillTimer(window, kMouseLeaveHideTimerId);
         PostMessageW(window, WM_CANCELMODE, 0, 0);
         SetTimer(window, kDeferredHideTimerId, 80, nullptr);
+    }
+
+    bool IsTemporaryPinKeyDown(xlaunch::TemporaryPinKey key)
+    {
+        switch (key)
+        {
+        case xlaunch::TemporaryPinKey::Shift:
+            return (GetAsyncKeyState(VK_LSHIFT) & 0x8000) != 0 ||
+                (GetAsyncKeyState(VK_RSHIFT) & 0x8000) != 0;
+        case xlaunch::TemporaryPinKey::Alt:
+            return (GetAsyncKeyState(VK_LMENU) & 0x8000) != 0 ||
+                (GetAsyncKeyState(VK_RMENU) & 0x8000) != 0;
+        case xlaunch::TemporaryPinKey::Win:
+            return (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 ||
+                (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0;
+        default:
+            return (GetAsyncKeyState(VK_LCONTROL) & 0x8000) != 0 ||
+                (GetAsyncKeyState(VK_RCONTROL) & 0x8000) != 0;
+        }
+    }
+
+    bool IsTemporaryPinVirtualKey(WPARAM virtualKey, xlaunch::TemporaryPinKey key)
+    {
+        switch (key)
+        {
+        case xlaunch::TemporaryPinKey::Shift:
+            return virtualKey == VK_SHIFT || virtualKey == VK_LSHIFT || virtualKey == VK_RSHIFT;
+        case xlaunch::TemporaryPinKey::Alt:
+            return virtualKey == VK_MENU || virtualKey == VK_LMENU || virtualKey == VK_RMENU;
+        case xlaunch::TemporaryPinKey::Win:
+            return virtualKey == VK_LWIN || virtualKey == VK_RWIN;
+        default:
+            return virtualKey == VK_CONTROL || virtualKey == VK_LCONTROL || virtualKey == VK_RCONTROL;
+        }
+    }
+
+    const char* TemporaryPinKeyLabel(xlaunch::TemporaryPinKey key)
+    {
+        switch (key)
+        {
+        case xlaunch::TemporaryPinKey::Shift: return "Shift";
+        case xlaunch::TemporaryPinKey::Alt: return "Alt";
+        case xlaunch::TemporaryPinKey::Win: return "Win";
+        default: return "Ctrl";
+        }
+    }
+
+    bool IsCursorOutsideWindow(HWND window);
+
+    void BeginTemporaryPin(HWND window)
+    {
+        g_temporaryPinActive = true;
+        g_temporaryPinReleasePolls = 0;
+        KillTimer(window, kMouseLeaveHideTimerId);
+        KillTimer(window, kDeferredHideTimerId);
+        SetTimer(window, kTemporaryPinTimerId, 30, nullptr);
+        SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE);
+        SetForegroundWindow(window);
+    }
+
+    void EndTemporaryPin(HWND window)
+    {
+        g_temporaryPinActive = false;
+        g_temporaryPinReleasePolls = 0;
+        KillTimer(window, kTemporaryPinTimerId);
+        if (g_keepVisible != nullptr && *g_keepVisible)
+            return;
+        SetWindowPos(window, HWND_NOTOPMOST, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        // Releasing the modifier only ends the temporary TopMost state. Keep the
+        // launcher visible while the pointer is still inside it; the normal
+        // mouse-leave path will hide it after the pointer actually moves out.
+        if (IsCursorOutsideWindow(window))
+            RequestHideMainWindow(window, false);
     }
 
     bool IsCursorOutsideWindow(HWND window)
@@ -1038,19 +1116,19 @@ namespace
                         IM_COL32(230, 233, 239, 255), visibleName.c_str());
             }
             if (hovered)
-                ImGui::SetTooltip("%s\n%s", item.DisplayName().c_str(),
+                ImGui::SetTooltip("%s\n%s；按住 %s 可连续启动并临时置顶",
+                    item.DisplayName().c_str(),
                     appearance.itemActivationMode == xlaunch::ItemActivationMode::DoubleClick
-                        ? "双击启动；Ctrl + 双击可连续启动"
-                        : "单击启动；Ctrl + 单击可连续启动");
+                        ? "双击启动" : "单击启动",
+                    TemporaryPinKeyLabel(state.config.window.temporaryPinKey));
 
             const bool activationRequested = appearance.itemActivationMode == xlaunch::ItemActivationMode::DoubleClick
                 ? hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)
                 : clicked;
-            if (activationRequested && ImGui::GetDragDropPayload() == nullptr && ShowOperationResult(state, xlaunch::Launch(item), "启动"))
+            if (activationRequested && ImGui::GetDragDropPayload() == nullptr)
             {
-                if (ImGui::GetIO().KeyCtrl && !state.config.window.keepVisible)
-                    KeepMainWindowForMultipleLaunches(owner);
-                else if (!state.config.window.keepVisible)
+                if (ShowOperationResult(state, xlaunch::Launch(item), "启动") &&
+                    !state.config.window.keepVisible && !g_temporaryPinActive)
                     RequestHideMainWindow(owner, false);
             }
 
@@ -1344,6 +1422,7 @@ namespace
                 owner, state.config, state.selectedCategory, changed, itemMove,
                 state.draggingFiles, state.externalDropCategory,
                 categoryWidth, sideCategories ? ImGui::GetContentRegionAvail().y : 0.0f, g_dpiScale,
+                g_temporaryPinActive,
                 state.config.window.keepVisible, saveImmediately);
             if (categoriesOnLeft)
             {
@@ -1373,6 +1452,7 @@ namespace
                 owner, state.config, state.selectedCategory, changed, itemMove,
                 state.draggingFiles, state.externalDropCategory,
                 sidebarWidth + sideOuterInset, ImGui::GetContentRegionAvail().y, g_dpiScale,
+                g_temporaryPinActive,
                 state.config.window.keepVisible, saveImmediately);
         }
         else if (categoriesOnLeft)
@@ -1426,6 +1506,11 @@ namespace
 
 LRESULT WINAPI WndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
+    if ((message == WM_KEYDOWN || message == WM_SYSKEYDOWN) && g_appConfig != nullptr &&
+        !g_appConfig->window.keepVisible && !g_temporaryPinActive && IsWindowVisible(window) &&
+        IsTemporaryPinVirtualKey(wParam, g_appConfig->window.temporaryPinKey))
+        BeginTemporaryPin(window);
+
     if ((message == WM_KEYDOWN || message == WM_SYSKEYDOWN) && g_allowLocalHotkeys &&
         (lParam & (1LL << 30)) == 0 && g_appConfig != nullptr)
     {
@@ -1454,7 +1539,7 @@ LRESULT WINAPI WndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
         else
             g_trackingNonClientMouse = false;
         ImGui_ImplWin32_WndProcHandler(window, message, wParam, lParam);
-        if (g_keepVisible != nullptr && !*g_keepVisible && !g_autoHideSuppressed &&
+        if (g_keepVisible != nullptr && !*g_keepVisible && !g_temporaryPinActive && !g_autoHideSuppressed &&
             IsWindowVisible(window) && IsCursorOutsideWindow(window))
             SetTimer(window, kMouseLeaveHideTimerId, 100, nullptr);
         return 0;
@@ -1494,9 +1579,23 @@ LRESULT WINAPI WndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
         }
         return 0;
     case WM_TIMER:
+        if (wParam == kTemporaryPinTimerId)
+        {
+            if (!g_temporaryPinActive)
+                KillTimer(window, kTemporaryPinTimerId);
+            else if (g_appConfig != nullptr &&
+                IsTemporaryPinKeyDown(g_appConfig->window.temporaryPinKey))
+                g_temporaryPinReleasePolls = 0;
+            else if (++g_temporaryPinReleasePolls >= 3)
+                EndTemporaryPin(window);
+            return 0;
+        }
         if (wParam == kDeferredHideTimerId)
         {
             KillTimer(window, kDeferredHideTimerId);
+            if (g_temporaryPinActive && g_appConfig != nullptr &&
+                IsTemporaryPinKeyDown(g_appConfig->window.temporaryPinKey))
+                return 0;
             if (g_autoHideSuppressed || IsAnyMouseButtonDown())
                 SetTimer(window, kDeferredHideTimerId, 80, nullptr);
             else if (GetCapture() == window)
@@ -1514,7 +1613,8 @@ LRESULT WINAPI WndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
             KillTimer(window, kMouseLeaveHideTimerId);
             if (g_autoHideSuppressed || IsAnyMouseButtonDown())
                 SetTimer(window, kMouseLeaveHideTimerId, 100, nullptr);
-            else if (g_keepVisible != nullptr && !*g_keepVisible && IsWindowVisible(window) && IsCursorOutsideWindow(window))
+            else if (g_keepVisible != nullptr && !*g_keepVisible && !g_temporaryPinActive &&
+                IsWindowVisible(window) && IsCursorOutsideWindow(window))
                 RequestHideMainWindow(window, true);
             return 0;
         }
@@ -1788,6 +1888,13 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
         else if (settingsWindow.IsVisible()) settingsWindow.Hide();
         if (state.itemEditor.IsOpen() && itemEditorWindowReady) itemEditorWindow.Show();
         else if (itemEditorWindow.IsVisible()) itemEditorWindow.Hide();
+
+        // A global show hotkey may have been pressed while another application
+        // owned the keyboard messages. Poll once the launcher becomes visible so
+        // an already-held temporary pin key still takes effect immediately.
+        if (IsWindowVisible(window) && !state.config.window.keepVisible && !g_temporaryPinActive &&
+            IsTemporaryPinKeyDown(state.config.window.temporaryPinKey))
+            BeginTemporaryPin(window);
 
         if (!IsWindowVisible(window) && !settingsWindow.IsVisible() && !itemEditorWindow.IsVisible() && hasRenderedFrame)
         {
