@@ -154,6 +154,7 @@
     <ClInclude Include="src\config\ConfigManager.h" />
     <ClInclude Include="src\config\BackupManager.h" />
     <ClInclude Include="src\core\LauncherData.h" />
+    <ClInclude Include="src\localization\LanguageManager.h" />
     <ClInclude Include="src\platform\LaunchOperations.h" />
     <ClInclude Include="src\platform\PortablePath.h" />
     <ClInclude Include="src\platform\FileDropTarget.h" />
@@ -180,6 +181,7 @@
   <ItemGroup>
     <ClCompile Include="src\config\ConfigManager.cpp" />
     <ClCompile Include="src\config\BackupManager.cpp" />
+    <ClCompile Include="src\localization\LanguageManager.cpp" />
     <ClCompile Include="src\platform\LaunchOperations.cpp" />
     <ClCompile Include="src\platform\PortablePath.cpp" />
     <ClCompile Include="src\platform\FileDropTarget.cpp" />

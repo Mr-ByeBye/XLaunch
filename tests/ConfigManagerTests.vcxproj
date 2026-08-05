@@ -33,6 +33,7 @@
     <ClCompile Include="ConfigManagerTests.cpp" />
     <ClCompile Include="..\src\config\BackupManager.cpp" />
     <ClCompile Include="..\src\config\ConfigManager.cpp" />
+    <ClCompile Include="..\src\localization\LanguageManager.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

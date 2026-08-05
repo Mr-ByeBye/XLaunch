@@ -1,4 +1,5 @@
 #include "ui/ItemEditor.h"
+#include "localization/LanguageManager.h"
 
 #include "platform/LaunchOperations.h"
 #include "platform/LaunchItemFactory.h"
@@ -13,6 +14,7 @@ namespace xlaunch
 {
     namespace
     {
+        const char* T(const char* key) { return LanguageManager::Get(key); }
         template <std::size_t Size>
         void CopyText(std::array<char, Size>& destination, const std::string& source)
         {
@@ -177,7 +179,7 @@ namespace xlaunch
         if (!open_)
             return;
 
-        const char* title = editing_ ? "编辑启动项目" : "新增启动项目";
+        const char* title = editing_ ? T("编辑启动项目") : T("新增启动项目");
         const ImGuiViewport* viewport = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(viewport->WorkPos);
         ImGui::SetNextWindowSize(viewport->WorkSize);
@@ -189,10 +191,10 @@ namespace xlaunch
             return;
         }
 
-        DrawField("自定义名称", customName_.data(), customName_.size());
+        DrawField(T("自定义名称"), customName_.data(), customName_.size());
 
         ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted("目标路径");
+        ImGui::TextUnformatted(T("目标路径"));
         ImGui::SameLine(130.0f);
         ImGui::SetNextItemWidth(345.0f);
         if (ImGui::InputText("##目标路径", target_.data(), target_.size()))
@@ -201,32 +203,32 @@ namespace xlaunch
             type_ = DetectItemType(target_.data());
         }
         ImGui::SameLine();
-        if (ImGui::Button("浏览文件"))
+        if (ImGui::Button(T("浏览文件")))
         {
             if (const auto selected = BrowseForTarget(owner))
                 ApplySelectedPath(*selected);
         }
         ImGui::SameLine();
-        if (ImGui::Button("浏览文件夹"))
+        if (ImGui::Button(T("浏览文件夹")))
         {
             if (const auto selected = BrowseForFolder(owner))
                 ApplySelectedPath(*selected);
         }
 
-        DrawField("启动参数", arguments_.data(), arguments_.size());
-        DrawField("工作目录", workingDirectory_.data(), workingDirectory_.size());
-        DrawField("自定义图标路径", customIconPath_.data(), customIconPath_.size());
-        ImGui::Checkbox("默认以管理员身份运行", &runAsAdministrator_);
+        DrawField(T("启动参数"), arguments_.data(), arguments_.size());
+        DrawField(T("工作目录"), workingDirectory_.data(), workingDirectory_.size());
+        DrawField(T("自定义图标路径"), customIconPath_.data(), customIconPath_.size());
+        ImGui::Checkbox(T("默认以管理员身份运行"), &runAsAdministrator_);
 
         auto drawShortcut = [&](const char* label, LaunchItem::Shortcut& shortcut, int captureId)
         {
             ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted(label);
             ImGui::SameLine(130.0f);
-            const std::string text = capturingShortcut_ == captureId ? "请按下快捷键…" : ShortcutText(shortcut);
+            const std::string text = capturingShortcut_ == captureId ? T("请按下快捷键…") : ShortcutText(shortcut);
             ImGui::Button((text + "##" + label).c_str(), ImVec2(250.0f, 0.0f));
             ImGui::SameLine();
-            if (ImGui::Button(((capturingShortcut_ == captureId ? "取消##" : "录制##") + std::string(label)).c_str()))
+            if (ImGui::Button(((capturingShortcut_ == captureId ? std::string(T("取消")) + "##" : std::string(T("录制")) + "##") + label).c_str()))
             {
                 if (capturingShortcut_ == captureId)
                     capturingShortcut_ = 0;
@@ -237,14 +239,14 @@ namespace xlaunch
                 }
             }
             ImGui::SameLine();
-            if (ImGui::Button(("清除##" + std::string(label)).c_str()))
+            if (ImGui::Button((std::string(T("清除")) + "##" + label).c_str()))
             {
                 shortcut = {};
                 if (capturingShortcut_ == captureId) capturingShortcut_ = 0;
             }
         };
-        drawShortcut("全局快捷键", globalShortcut_, 1);
-        drawShortcut("软件内快捷键", localShortcut_, 2);
+        drawShortcut(T("全局快捷键"), globalShortcut_, 1);
+        drawShortcut(T("软件内快捷键"), localShortcut_, 2);
 
         if (capturingShortcut_ != 0 && ImGui::GetFrameCount() > captureStartFrame_ + 1)
         {
@@ -285,7 +287,7 @@ namespace xlaunch
         if (!validationError_.empty())
             ImGui::TextColored(ImVec4(0.95f, 0.40f, 0.40f, 1.0f), "%s", validationError_.c_str());
 
-        if (ImGui::Button("保存", ImVec2(90.0f, 0.0f)))
+        if (ImGui::Button(T("保存"), ImVec2(90.0f, 0.0f)))
         {
             if (target_[0] == '\0')
             {
@@ -348,7 +350,7 @@ namespace xlaunch
             }
         }
         ImGui::SameLine();
-        if (ImGui::Button("取消", ImVec2(90.0f, 0.0f)))
+        if (ImGui::Button(T("取消"), ImVec2(90.0f, 0.0f)))
         {
             capturingShortcut_ = 0;
             open_ = false;

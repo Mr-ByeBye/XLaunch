@@ -1,5 +1,6 @@
 #include "config/BackupManager.h"
 #include "config/ConfigManager.h"
+#include "localization/LanguageManager.h"
 
 #include <chrono>
 #include <cmath>
@@ -36,6 +37,19 @@ int main()
     const std::filesystem::path directory =
         std::filesystem::temp_directory_path() / ("XLaunchConfigTest-" + std::to_string(suffix));
     const std::filesystem::path configPath = directory / "xlaunch.json";
+
+    xlaunch::LanguageManager::Initialize(directory, "en");
+    const bool builtInEnglishLoaded = std::string(xlaunch::LanguageManager::Get("常用")) == "Common" &&
+        std::string(xlaunch::LanguageManager::Get("钉住")) == "Pin and keep visible";
+    const std::filesystem::path languageDirectory = directory / "lang";
+    bool languageFilesReleased = std::filesystem::exists(languageDirectory / "zh-cn.ini") &&
+        std::filesystem::exists(languageDirectory / "zh-tw.ini") &&
+        std::filesystem::exists(languageDirectory / "en.ini");
+    std::ofstream(languageDirectory / "de.ini", std::ios::binary | std::ios::trunc)
+        << "[strings]\n语言=Sprache\n关闭=Schliessen\n";
+    const bool customLanguageLoaded = xlaunch::LanguageManager::SetLanguage("de") &&
+        std::string(xlaunch::LanguageManager::Get("语言")) == "Sprache" &&
+        std::string(xlaunch::LanguageManager::Get("未翻译")) == "未翻译";
 
     xlaunch::ConfigManager manager(configPath);
     xlaunch::AppConfig config = xlaunch::MakeDefaultConfig();
@@ -86,6 +100,7 @@ int main()
     config.appearance.categoryBarVerticalReading = xlaunch::CategoryBarVerticalReading::BottomToTop;
     config.appearance.categorySwitchMode = xlaunch::CategorySwitchMode::Hover;
     config.appearance.categoryHoverDelayMs = 420;
+    config.appearance.language = "en";
     config.window.startupPosition = xlaunch::StartupPositionMode::Custom;
     config.window.corner = xlaunch::ScreenCorner::BottomRight;
     config.window.temporaryPinKey = xlaunch::TemporaryPinKey::Shift;
@@ -109,6 +124,9 @@ int main()
 
     std::string error;
     bool success = Check(defaultPathIsPortable, "默认配置未位于程序目录的 config 子目录");
+    success &= Check(languageFilesReleased, "内置语言文件未自动释放");
+    success &= Check(builtInEnglishLoaded, "内置英文翻译未正确加载");
+    success &= Check(customLanguageLoaded, "自定义 INI 语言未被发现或回退失效");
     success &= Check(requestedDefaults, "首次运行默认设置不正确");
     success &= Check(manager.Save(config, error), error.c_str());
     const xlaunch::ConfigManager::LoadResult loaded = manager.Load();
@@ -143,6 +161,7 @@ int main()
     success &= Check(std::abs(loaded.config.appearance.windowOpacity - 0.72f) < 0.001f, "窗口透明度未保存");
     success &= Check(loaded.config.appearance.categorySwitchMode == xlaunch::CategorySwitchMode::Hover &&
         loaded.config.appearance.categoryHoverDelayMs == 420, "分类悬停切换设置未保存");
+    success &= Check(loaded.config.appearance.language == "en", "语言设置未保存");
     success &= Check(loaded.config.window.startupPosition == xlaunch::StartupPositionMode::Custom, "启动位置模式未保存");
     success &= Check(loaded.config.window.corner == xlaunch::ScreenCorner::BottomRight, "屏幕角落未保存");
     success &= Check(loaded.config.window.temporaryPinKey == xlaunch::TemporaryPinKey::Shift,

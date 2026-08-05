@@ -73,6 +73,7 @@ namespace xlaunch
         float categorySidebarMaximumWidth = 80.0f;
         CategoryBarTextDirection categoryBarTextDirection = CategoryBarTextDirection::Horizontal;
         CategoryBarVerticalReading categoryBarVerticalReading = CategoryBarVerticalReading::TopToBottom;
+        std::string language = "zh-cn";
     };
 
     enum class StartupPositionMode
@@ -275,6 +276,7 @@ namespace xlaunch
         config.appearance.windowOpacity = std::clamp(config.appearance.windowOpacity, 0.35f, 1.0f);
         config.appearance.categoryHoverDelayMs = std::clamp(config.appearance.categoryHoverDelayMs, 50, 2000);
         config.appearance.categorySidebarMaximumWidth = std::clamp(config.appearance.categorySidebarMaximumWidth, 32.0f, 200.0f);
+        if (config.appearance.language.empty()) config.appearance.language = "zh-cn";
         config.backup.keepCount = std::clamp(config.backup.keepCount, 1, 50);
         config.hotkey.modifiers &= HotkeyControl | HotkeyAlt | HotkeyShift | HotkeyWin;
         if (config.hotkey.virtualKey < 0x08 || config.hotkey.virtualKey > 0xFE)

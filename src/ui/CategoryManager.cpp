@@ -1,4 +1,5 @@
 #include "ui/CategoryManager.h"
+#include "localization/LanguageManager.h"
 
 #include <algorithm>
 #include <cstring>
@@ -10,6 +11,7 @@ namespace xlaunch
 {
     namespace
     {
+        const char* T(const char* key) { return LanguageManager::Get(key); }
         void DrawRotatedText(ImDrawList* drawList, const ImVec2& cellMin, const ImVec2& cellMax,
             const char* text, bool clockwise, ImU32 color)
         {
@@ -66,8 +68,8 @@ namespace xlaunch
                 ImVec2(center.x, center.y + 9.0f * scale), iconColor, 1.5f * scale);
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(temporaryPinned && !pinned
-                    ? "临时钉住（松开按键后取消置顶）"
-                    : pinned ? "取消钉住" : "钉住");
+                    ? T("临时钉住（松开按键后取消置顶）")
+                    : pinned ? T("取消钉住") : T("钉住"));
             return clicked;
         }
     }
@@ -373,14 +375,14 @@ namespace xlaunch
 
             if (ImGui::BeginPopupContextItem("CategoryMenu"))
             {
-                if (ImGui::MenuItem("重命名"))
+                if (ImGui::MenuItem(T("重命名")))
                 {
                     renameIndex_ = static_cast<int>(index);
                     strncpy_s(nameBuffer_.data(), nameBuffer_.size(), config.categories[index].name.c_str(), _TRUNCATE);
                     validationError_.clear();
                     focusRenameInput_ = true;
                 }
-                if (ImGui::MenuItem("删除", nullptr, false, config.categories.size() > 1))
+                if (ImGui::MenuItem(T("删除"), nullptr, false, config.categories.size() > 1))
                 {
                     deleteIndex_ = static_cast<int>(index);
                     moveDestination_ = index == 0 ? 1 : 0;
@@ -468,23 +470,23 @@ namespace xlaunch
         {
             nameBuffer_.fill('\0');
             validationError_.clear();
-            ImGui::OpenPopup("新增分类");
+            ImGui::OpenPopup(T("新增分类"));
             addRequested_ = false;
         }
-        if (ImGui::BeginPopupModal("新增分类", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        if (ImGui::BeginPopupModal(T("新增分类"), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
         {
-            ImGui::TextUnformatted("分类名称");
+            ImGui::TextUnformatted(T("分类名称"));
             ImGui::SetNextItemWidth(280.0f);
             const bool submitted = ImGui::InputText("##NewCategoryName", nameBuffer_.data(), nameBuffer_.size(), ImGuiInputTextFlags_EnterReturnsTrue);
             if (!validationError_.empty())
                 ImGui::TextColored(ImVec4(0.95f, 0.40f, 0.40f, 1.0f), "%s", validationError_.c_str());
-            if (submitted || ImGui::Button("新增", ImVec2(90.0f, 0.0f)))
+            if (submitted || ImGui::Button(T("新增"), ImVec2(90.0f, 0.0f)))
             {
                 const std::string name = nameBuffer_.data();
                 if (name.empty())
-                    validationError_ = "分类名称不能为空。";
+                    validationError_ = T("分类名称不能为空。");
                 else if (NameExists(config, name, (std::numeric_limits<std::size_t>::max)()))
-                    validationError_ = "分类名称不能重复。";
+                    validationError_ = T("分类名称不能重复。");
                 else
                 {
                     config.categories.push_back(Category{ MakeId("category"), name, {} });
@@ -494,16 +496,16 @@ namespace xlaunch
                 }
             }
             ImGui::SameLine();
-            if (ImGui::Button("取消", ImVec2(90.0f, 0.0f)))
+            if (ImGui::Button(T("取消"), ImVec2(90.0f, 0.0f)))
                 ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
 
         if (renameIndex_ >= 0)
-            ImGui::OpenPopup("重命名分类");
-        if (ImGui::BeginPopupModal("重命名分类", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            ImGui::OpenPopup(T("重命名分类"));
+        if (ImGui::BeginPopupModal(T("重命名分类"), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
         {
-            ImGui::TextUnformatted("分类名称");
+            ImGui::TextUnformatted(T("分类名称"));
             ImGui::SetNextItemWidth(280.0f);
             if (focusRenameInput_)
             {
@@ -513,13 +515,13 @@ namespace xlaunch
             const bool submitted = ImGui::InputText("##RenameCategoryName", nameBuffer_.data(), nameBuffer_.size(), ImGuiInputTextFlags_EnterReturnsTrue);
             if (!validationError_.empty())
                 ImGui::TextColored(ImVec4(0.95f, 0.40f, 0.40f, 1.0f), "%s", validationError_.c_str());
-            if (submitted || ImGui::Button("保存", ImVec2(90.0f, 0.0f)))
+            if (submitted || ImGui::Button(T("保存"), ImVec2(90.0f, 0.0f)))
             {
                 const std::string name = nameBuffer_.data();
                 if (name.empty())
-                    validationError_ = "分类名称不能为空。";
+                    validationError_ = T("分类名称不能为空。");
                 else if (NameExists(config, name, static_cast<std::size_t>(renameIndex_)))
-                    validationError_ = "分类名称不能重复。";
+                    validationError_ = T("分类名称不能重复。");
                 else
                 {
                     config.categories[renameIndex_].name = name;
@@ -529,7 +531,7 @@ namespace xlaunch
                 }
             }
             ImGui::SameLine();
-            if (ImGui::Button("取消", ImVec2(90.0f, 0.0f)))
+            if (ImGui::Button(T("取消"), ImVec2(90.0f, 0.0f)))
             {
                 renameIndex_ = -1;
                 ImGui::CloseCurrentPopup();
@@ -540,12 +542,12 @@ namespace xlaunch
         if (deleteIndex_ >= 0)
         {
             const bool empty = config.categories[deleteIndex_].items.empty();
-            ImGui::OpenPopup(empty ? "确认删除分类" : "删除非空分类");
+            ImGui::OpenPopup(empty ? T("确认删除分类") : T("删除非空分类"));
         }
-        if (ImGui::BeginPopupModal("确认删除分类", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        if (ImGui::BeginPopupModal(T("确认删除分类"), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
         {
-            ImGui::Text("确认删除分类“%s”？", config.categories[deleteIndex_].name.c_str());
-            if (ImGui::Button("删除", ImVec2(90.0f, 0.0f)))
+            ImGui::Text(T("确认删除分类“%s”？"), config.categories[deleteIndex_].name.c_str());
+            if (ImGui::Button(T("删除"), ImVec2(90.0f, 0.0f)))
             {
                 DeleteCategory(config, deleteIndex_, selectedCategory);
                 deleteIndex_ = -1;
@@ -553,17 +555,17 @@ namespace xlaunch
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (ImGui::Button("取消", ImVec2(90.0f, 0.0f)))
+            if (ImGui::Button(T("取消"), ImVec2(90.0f, 0.0f)))
             {
                 deleteIndex_ = -1;
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
         }
-        if (ImGui::BeginPopupModal("删除非空分类", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        if (ImGui::BeginPopupModal(T("删除非空分类"), nullptr, ImGuiWindowFlags_AlwaysAutoResize))
         {
-            ImGui::Text("分类“%s”包含 %zu 个项目。", config.categories[deleteIndex_].name.c_str(), config.categories[deleteIndex_].items.size());
-            if (ImGui::BeginCombo("移动到", config.categories[moveDestination_].name.c_str()))
+            ImGui::Text(T("分类“%s”包含 %zu 个项目。"), config.categories[deleteIndex_].name.c_str(), config.categories[deleteIndex_].items.size());
+            if (ImGui::BeginCombo(T("移动到"), config.categories[moveDestination_].name.c_str()))
             {
                 for (std::size_t index = 0; index < config.categories.size(); ++index)
                 {
@@ -574,7 +576,7 @@ namespace xlaunch
                 }
                 ImGui::EndCombo();
             }
-            if (ImGui::Button("移动项目并删除分类"))
+            if (ImGui::Button(T("移动项目并删除分类")))
             {
                 auto& source = config.categories[deleteIndex_].items;
                 auto& destination = config.categories[moveDestination_].items;
@@ -587,7 +589,7 @@ namespace xlaunch
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (ImGui::Button("同时删除项目"))
+            if (ImGui::Button(T("同时删除项目")))
             {
                 DeleteCategory(config, deleteIndex_, selectedCategory);
                 deleteIndex_ = -1;
@@ -595,7 +597,7 @@ namespace xlaunch
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (ImGui::Button("取消"))
+            if (ImGui::Button(T("取消")))
             {
                 deleteIndex_ = -1;
                 ImGui::CloseCurrentPopup();

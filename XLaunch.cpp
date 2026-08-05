@@ -3,6 +3,7 @@
 
 #include "config/BackupManager.h"
 #include "config/ConfigManager.h"
+#include "localization/LanguageManager.h"
 #include "platform/FileDropTarget.h"
 #include "platform/HotkeyManager.h"
 #include "platform/LaunchItemFactory.h"
@@ -36,6 +37,7 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM,
 
 namespace
 {
+    const char* T(const char* key) { return xlaunch::LanguageManager::Get(key); }
     ID3D11Device* g_device = nullptr;
     ID3D11DeviceContext* g_deviceContext = nullptr;
     IDXGISwapChain* g_swapChain = nullptr;
@@ -45,6 +47,7 @@ namespace
     UINT g_pendingHeight = 0;
     float g_dpiScale = 1.0f;
     bool g_exitRequested = false;
+    bool g_openSettingsRequested = false;
     xlaunch::TrayIconManager* g_trayIcon = nullptr;
     xlaunch::HotkeyManager* g_hotkeyManager = nullptr;
     const xlaunch::AppConfig* g_appConfig = nullptr;
@@ -64,7 +67,7 @@ namespace
     bool g_deferredHideOutsideOnly = false;
 
     constexpr ImVec4 kClearColor{ 0.055f, 0.063f, 0.078f, 1.0f };
-    constexpr const char* kVersion = "v2026080302";
+    constexpr const char* kVersion = "v2026080601";
     std::wstring Utf8ToWide(const std::string& value);
     void ApplyDarkTheme(float dpiScale);
     LRESULT WINAPI ToolWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -322,8 +325,17 @@ namespace
         explicit AppState(ID3D11Device* device)
             : iconCache(device, configManager.Path().parent_path() / "icon-cache")
         {
+            const bool firstRun = !std::filesystem::exists(configManager.Path());
             auto result = configManager.Load();
             config = std::move(result.config);
+            if (firstRun)
+                config.appearance.language = xlaunch::LanguageManager::DetectSystemLanguage();
+            xlaunch::LanguageManager::Initialize(configManager.Path().parent_path(), config.appearance.language);
+            if (firstRun && !config.categories.empty())
+            {
+                config.categories.front().name = T("常用");
+                MarkDirty();
+            }
             bool portablePathsChanged = false;
             for (xlaunch::Category& category : config.categories)
                 for (xlaunch::LaunchItem& item : category.items)
@@ -1116,10 +1128,10 @@ namespace
                         IM_COL32(230, 233, 239, 255), visibleName.c_str());
             }
             if (hovered)
-                ImGui::SetTooltip("%s\n%s；按住 %s 可连续启动并临时置顶",
+                ImGui::SetTooltip((std::string("%s\n") + T("%s；按住 %s 可连续启动并临时置顶")).c_str(),
                     item.DisplayName().c_str(),
                     appearance.itemActivationMode == xlaunch::ItemActivationMode::DoubleClick
-                        ? "双击启动" : "单击启动",
+                        ? T("双击启动") : T("单击启动"),
                     TemporaryPinKeyLabel(state.config.window.temporaryPinKey));
 
             const bool activationRequested = appearance.itemActivationMode == xlaunch::ItemActivationMode::DoubleClick
@@ -1134,32 +1146,32 @@ namespace
 
             if (ImGui::BeginPopupContextItem("ItemMenu"))
             {
-                if (ImGui::MenuItem("启动"))
+            if (ImGui::MenuItem(T("启动")))
                 {
                     if (ShowOperationResult(state, xlaunch::Launch(item), "启动") && !state.config.window.keepVisible)
                         RequestHideMainWindow(owner, false);
                 }
-                if (ImGui::MenuItem("启动并保持显示"))
+                if (ImGui::MenuItem(T("启动并保持显示")))
                 {
                     if (ShowOperationResult(state, xlaunch::Launch(item), "启动") && !state.config.window.keepVisible)
                         KeepMainWindowForMultipleLaunches(owner);
                 }
-                if (ImGui::MenuItem("以管理员身份运行"))
+                if (ImGui::MenuItem(T("以管理员身份运行")))
                 {
                     if (ShowOperationResult(state, xlaunch::Launch(item, true), "以管理员身份运行") && !state.config.window.keepVisible)
                         RequestHideMainWindow(owner, false);
                 }
-                if (ImGui::MenuItem("打开所在位置"))
+                if (ImGui::MenuItem(T("打开所在位置")))
                     ShowOperationResult(state, xlaunch::OpenContainingLocation(item), "打开所在位置");
                 ImGui::Separator();
-                if (ImGui::MenuItem("编辑"))
+                if (ImGui::MenuItem(T("编辑")))
                     state.itemEditor.OpenEdit(state.config, state.selectedCategory, index);
-                if (ImGui::MenuItem("复制"))
+                if (ImGui::MenuItem(T("复制")))
                 {
                     pendingAction = PendingAction::Duplicate;
                     pendingItem = index;
                 }
-                if (ImGui::BeginMenu("移动到分类", state.config.categories.size() > 1))
+                if (ImGui::BeginMenu(T("移动到分类"), state.config.categories.size() > 1))
                 {
                     for (std::size_t destination = 0; destination < state.config.categories.size(); ++destination)
                     {
@@ -1175,7 +1187,7 @@ namespace
                     ImGui::EndMenu();
                 }
                 ImGui::Separator();
-                if (ImGui::MenuItem("删除"))
+                if (ImGui::MenuItem(T("删除")))
                     deleteItem = static_cast<int>(index);
                 ImGui::EndPopup();
             }
@@ -1185,15 +1197,15 @@ namespace
 
         if (ImGui::BeginPopupContextWindow("GridMenu", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
         {
-            if (ImGui::BeginMenu("显示方式"))
+            if (ImGui::BeginMenu(T("显示方式")))
             {
-                if (ImGui::MenuItem("图标网格", nullptr, !compactList))
+                if (ImGui::MenuItem(T("图标网格"), nullptr, !compactList))
                 {
                     category.displayMode = xlaunch::CategoryDisplayMode::IconGrid;
                     changed = true;
                     saveImmediately = true;
                 }
-                if (ImGui::MenuItem("紧凑列表", nullptr, compactList))
+                if (ImGui::MenuItem(T("紧凑列表"), nullptr, compactList))
                 {
                     category.displayMode = xlaunch::CategoryDisplayMode::CompactList;
                     changed = true;
@@ -1202,9 +1214,9 @@ namespace
                 ImGui::EndMenu();
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("新增启动项目"))
+            if (ImGui::MenuItem(T("新增启动项目")))
                 state.itemEditor.OpenNew(state.selectedCategory);
-            if (ImGui::BeginMenu("添加系统图标"))
+            if (ImGui::BeginMenu(T("添加系统图标")))
             {
                 struct SystemShellItem
                 {
@@ -1242,9 +1254,9 @@ namespace
                 }
                 ImGui::EndMenu();
             }
-            if (ImGui::MenuItem("新增分类"))
+            if (ImGui::MenuItem(T("新增分类")))
                 state.categoryManager.OpenAdd();
-            if (ImGui::MenuItem("打开设置"))
+            if (ImGui::MenuItem(T("打开设置")))
                 state.settingsPopup.Open();
             ImGui::EndPopup();
         }
@@ -1560,6 +1572,10 @@ LRESULT WINAPI WndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
     }
     case WM_COMMAND:
         if (LOWORD(wParam) == xlaunch::kTrayToggleCommand) PostMessageW(window, xlaunch::kToggleWindowMessage, 0, 0);
+        else if (LOWORD(wParam) == xlaunch::kTraySettingsCommand)
+        {
+            g_openSettingsRequested = true;
+        }
         else if (LOWORD(wParam) == xlaunch::kTrayAuthorCommand)
             ShellExecuteW(window, L"open", L"https://mrx.la", nullptr, nullptr, SW_SHOWNORMAL);
         else if (LOWORD(wParam) == xlaunch::kTrayExitCommand)
@@ -1828,10 +1844,12 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
         state.ShowError("创建系统托盘图标失败。");
     ToolWindow settingsWindow;
     ToolWindow itemEditorWindow;
-    const bool settingsWindowReady = settingsWindow.Initialize(instance, window, L"XLaunch 设置",
+    const std::wstring settingsWindowTitle = L"XLaunch " + xlaunch::LanguageManager::GetWide("软件设置");
+    const std::wstring itemEditorWindowTitle = L"XLaunch " + xlaunch::LanguageManager::GetWide("启动项编辑");
+    const bool settingsWindowReady = settingsWindow.Initialize(instance, window, settingsWindowTitle.c_str(),
         static_cast<int>(660.0f * dpiScale), static_cast<int>(410.0f * dpiScale),
         static_cast<int>(600.0f * dpiScale), static_cast<int>(380.0f * dpiScale));
-    const bool itemEditorWindowReady = itemEditorWindow.Initialize(instance, window, L"XLaunch 启动项编辑",
+    const bool itemEditorWindowReady = itemEditorWindow.Initialize(instance, window, itemEditorWindowTitle.c_str(),
         static_cast<int>(760.0f * dpiScale), static_cast<int>(500.0f * dpiScale),
         static_cast<int>(620.0f * dpiScale), static_cast<int>(420.0f * dpiScale));
     if (!settingsWindowReady || !itemEditorWindowReady)
@@ -1884,6 +1902,11 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
             state.ApplyItemHotkeys(window);
         }
         if (itemEditorWindow.ConsumeCloseRequested()) state.itemEditor.Close();
+        if (g_openSettingsRequested)
+        {
+            g_openSettingsRequested = false;
+            state.settingsPopup.Open();
+        }
         if (state.settingsPopup.IsOpen() && settingsWindowReady) settingsWindow.Show();
         else if (settingsWindow.IsVisible()) settingsWindow.Hide();
         if (state.itemEditor.IsOpen() && itemEditorWindowReady) itemEditorWindow.Show();
@@ -1967,6 +1990,13 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
             state.ApplyItemHotkeys(window);
         }
         state.HandleSettingsActions(window, settingsActions);
+        if (settingsActions.languageChanged)
+        {
+            const std::wstring settingsTitle = L"XLaunch " + xlaunch::LanguageManager::GetWide("软件设置");
+            const std::wstring editorTitle = L"XLaunch " + xlaunch::LanguageManager::GetWide("启动项编辑");
+            SetWindowTextW(settingsWindow.Handle(), settingsTitle.c_str());
+            SetWindowTextW(itemEditorWindow.Handle(), editorTitle.c_str());
+        }
         if (g_persistWindowSizeAfterFrame)
         {
             g_persistWindowSizeAfterFrame = false;

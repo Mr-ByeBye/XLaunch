@@ -9,6 +9,7 @@ namespace xlaunch
     inline constexpr UINT kTrayToggleCommand = 41001;
     inline constexpr UINT kTrayAuthorCommand = 41002;
     inline constexpr UINT kTrayExitCommand = 41003;
+    inline constexpr UINT kTraySettingsCommand = 41004;
 
     class TrayIconManager
     {

@@ -17,6 +17,7 @@ namespace xlaunch
         bool backupNow = false;
         bool windowTitleChanged = false;
         bool windowOpacityChanged = false;
+        bool languageChanged = false;
         bool openConfigDirectory = false;
     };
 

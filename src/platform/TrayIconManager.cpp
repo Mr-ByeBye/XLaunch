@@ -1,4 +1,5 @@
 #include "platform/TrayIconManager.h"
+#include "localization/LanguageManager.h"
 
 #include <shellapi.h>
 
@@ -41,11 +42,16 @@ namespace xlaunch
     {
         HMENU menu = CreatePopupMenu();
         if (menu == nullptr) return;
-        AppendMenuW(menu, MF_STRING, kTrayToggleCommand, IsWindowVisible(data_.hWnd) ? L"隐藏 XLaunch" : L"显示 XLaunch");
+        const std::wstring toggleText = LanguageManager::GetWide(IsWindowVisible(data_.hWnd) ? "隐藏 XLaunch" : "显示 XLaunch");
+        const std::wstring settingsText = LanguageManager::GetWide("软件设置");
+        const std::wstring authorText = LanguageManager::GetWide("作者主页");
+        const std::wstring exitText = LanguageManager::GetWide("退出");
+        AppendMenuW(menu, MF_STRING, kTrayToggleCommand, toggleText.c_str());
+        AppendMenuW(menu, MF_STRING, kTraySettingsCommand, settingsText.c_str());
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, MF_STRING, kTrayAuthorCommand, L"作者主页");
+        AppendMenuW(menu, MF_STRING, kTrayAuthorCommand, authorText.c_str());
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, MF_STRING, kTrayExitCommand, L"退出");
+        AppendMenuW(menu, MF_STRING, kTrayExitCommand, exitText.c_str());
         POINT point{};
         GetCursorPos(&point);
         SetForegroundWindow(data_.hWnd);

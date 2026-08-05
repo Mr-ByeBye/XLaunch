@@ -256,6 +256,7 @@ namespace xlaunch
                     ? CategoryBarTextDirection::Vertical : CategoryBarTextDirection::Horizontal;
                 config.appearance.categoryBarVerticalReading = appearance->value("categoryBarVerticalReading", "topToBottom") == "bottomToTop"
                     ? CategoryBarVerticalReading::BottomToTop : CategoryBarVerticalReading::TopToBottom;
+                config.appearance.language = appearance->value("language", "zh-cn");
             }
 
             if (const auto window = root.find("window"); window != root.end() && window->is_object())
@@ -372,6 +373,7 @@ namespace xlaunch
                 ,{ "categorySidebarMaximumWidth", config.appearance.categorySidebarMaximumWidth }
                 ,{ "categoryBarTextDirection", config.appearance.categoryBarTextDirection == CategoryBarTextDirection::Vertical ? "vertical" : "horizontal" }
                 ,{ "categoryBarVerticalReading", config.appearance.categoryBarVerticalReading == CategoryBarVerticalReading::BottomToTop ? "bottomToTop" : "topToBottom" }
+                ,{ "language", config.appearance.language }
             };
             root["window"] = {
                 { "title", config.window.title },
