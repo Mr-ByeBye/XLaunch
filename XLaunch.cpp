@@ -30,6 +30,7 @@
 #include <shellapi.h>
 
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "imgui_impl_dx11.h"
 #include "imgui_impl_win32.h"
 
@@ -67,7 +68,7 @@ namespace
     bool g_deferredHideOutsideOnly = false;
 
     constexpr ImVec4 kClearColor{ 0.055f, 0.063f, 0.078f, 1.0f };
-    constexpr const char* kVersion = "v2026080601";
+    constexpr const char* kVersion = "v2026080702";
     std::wstring Utf8ToWide(const std::string& value);
     void ApplyDarkTheme(float dpiScale);
     LRESULT WINAPI ToolWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -312,11 +313,14 @@ namespace
         bool errorPopupRequested = false;
         bool draggingFiles = false;
         std::size_t externalDropCategory = 0;
+        std::size_t externalDropInsertion = 0;
+        POINTL externalDropPoint{};
         bool itemShortcutCaptureActive = false;
 
         struct PendingDuplicate
         {
             std::size_t categoryIndex = 0;
+            std::size_t insertionIndex = 0;
             xlaunch::LaunchItem item;
         };
         std::deque<PendingDuplicate> pendingDuplicates;
@@ -403,7 +407,7 @@ namespace
         void ApplyStartupSetting()
         {
             std::string error;
-            if (!xlaunch::StartupManager::SetEnabled(config.startWithWindows, error))
+            if (!xlaunch::StartupManager::SetEnabled(config.startWithWindows, config.startupPriority, error))
             {
                 config.startWithWindows = xlaunch::StartupManager::IsEnabled();
                 MarkDirty();
@@ -495,12 +499,21 @@ namespace
 
         void UpdateExternalDropTarget(bool dragging, POINTL point)
         {
-            draggingFiles = dragging;
             if (dragging && !config.categories.empty())
-                externalDropCategory = categoryManager.HitTestCategory(point, selectedCategory);
+            {
+                const bool wasDragging = draggingFiles;
+                const std::size_t previousCategory = externalDropCategory;
+                const std::size_t targetCategory = categoryManager.HitTestCategory(point, selectedCategory);
+                externalDropPoint = point;
+                externalDropCategory = targetCategory;
+                if (!wasDragging || targetCategory != previousCategory)
+                    externalDropInsertion = config.categories[targetCategory].items.size();
+            }
+            draggingFiles = dragging;
         }
 
-        void HandleDroppedFiles(const std::vector<xlaunch::DroppedShellItem>& droppedItems, std::size_t categoryIndex)
+        void HandleDroppedFiles(const std::vector<xlaunch::DroppedShellItem>& droppedItems,
+            std::size_t categoryIndex, std::size_t insertionIndex)
         {
             if (categoryIndex >= config.categories.size())
                 return;
@@ -508,6 +521,7 @@ namespace
             bool added = false;
             std::string errors;
             xlaunch::Category& category = config.categories[categoryIndex];
+            std::size_t insertion = (std::min)(insertionIndex, category.items.size());
             for (const xlaunch::DroppedShellItem& droppedItem : droppedItems)
             {
                 xlaunch::LaunchItemResult result = xlaunch::CreateLaunchItemFromShellItem(
@@ -525,19 +539,23 @@ namespace
                     [&](const xlaunch::LaunchItem& existing) { return SameTarget(existing, result.item); });
                 if (duplicate)
                 {
-                    pendingDuplicates.push_back(PendingDuplicate{ categoryIndex, std::move(result.item) });
+                    pendingDuplicates.push_back(PendingDuplicate{ categoryIndex, insertion, std::move(result.item) });
                     duplicatePopupRequested = true;
+                    ++insertion;
                 }
                 else
                 {
-                    result.item.sortOrder = static_cast<int>(category.items.size());
-                    category.items.push_back(std::move(result.item));
+                    const std::size_t actualInsertion = (std::min)(insertion, category.items.size());
+                    category.items.insert(category.items.begin() + static_cast<std::ptrdiff_t>(actualInsertion), std::move(result.item));
+                    ++insertion;
                     added = true;
                 }
             }
 
             if (added)
             {
+                for (std::size_t index = 0; index < category.items.size(); ++index)
+                    category.items[index].sortOrder = static_cast<int>(index);
                 MarkDirty();
                 SaveNow();
             }
@@ -982,8 +1000,10 @@ namespace
             if (pending.categoryIndex < state.config.categories.size())
             {
                 xlaunch::Category& category = state.config.categories[pending.categoryIndex];
-                pending.item.sortOrder = static_cast<int>(category.items.size());
-                category.items.push_back(std::move(pending.item));
+                const std::size_t insertion = (std::min)(pending.insertionIndex, category.items.size());
+                category.items.insert(category.items.begin() + static_cast<std::ptrdiff_t>(insertion), std::move(pending.item));
+                for (std::size_t index = 0; index < category.items.size(); ++index)
+                    category.items[index].sortOrder = static_cast<int>(index);
                 state.MarkDirty();
                 state.SaveNow();
             }
@@ -1008,7 +1028,10 @@ namespace
         std::size_t pendingItem = 0;
         std::size_t moveDestination = 0;
         int reorderSource = -1;
-        int reorderTarget = -1;
+        int reorderInsertion = -1;
+        ImVec2 insertionMarkerStart{};
+        ImVec2 insertionMarkerEnd{};
+        bool showInsertionMarker = false;
         static int deleteItem = -1;
         bool hoveredAnyItem = false;
 
@@ -1025,6 +1048,21 @@ namespace
         const ImVec2 gridSize = ImGui::GetContentRegionAvail();
         const float hostWindowWidth = ImGui::GetWindowSize().x;
         const ImVec2 gridMax{ gridMin.x + gridSize.x, gridMin.y + gridSize.y };
+        POINT externalPoint{
+            static_cast<LONG>(state.externalDropPoint.x),
+            static_cast<LONG>(state.externalDropPoint.y)
+        };
+        ScreenToClient(owner, &externalPoint);
+        const bool externalDropIntoGrid = state.draggingFiles &&
+            state.externalDropCategory == state.selectedCategory &&
+            externalPoint.x >= gridMin.x && externalPoint.x <= gridMax.x &&
+            externalPoint.y >= gridMin.y && externalPoint.y <= gridMax.y;
+        float externalInsertionDistance = (std::numeric_limits<float>::max)();
+        ImVec2 externalMarkerStart{};
+        ImVec2 externalMarkerEnd{};
+        bool showExternalMarker = false;
+        if (externalDropIntoGrid)
+            state.externalDropInsertion = category.items.size();
         ImGui::BeginChild(
             "IconGrid",
             ImVec2(0.0f, 0.0f),
@@ -1066,6 +1104,7 @@ namespace
             const ImVec2 cellMin = ImGui::GetCursorScreenPos();
             const bool clicked = ImGui::InvisibleButton("Item", ImVec2(cellWidth, cellHeight));
             const bool hovered = ImGui::IsItemHovered();
+            const ImVec2 cellMax{ cellMin.x + cellWidth, cellMin.y + cellHeight };
             hoveredAnyItem |= hovered;
             if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
             {
@@ -1074,20 +1113,60 @@ namespace
                 ImGui::Text("移动项目：%s", item.DisplayName().c_str());
                 ImGui::EndDragDropSource();
             }
-            if (ImGui::BeginDragDropTarget())
+            auto acceptInsertionTarget = [&](const char* id, const ImRect& target, int insertion, float markerX)
             {
-                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("XLAUNCH_ITEM"))
+                if (!ImGui::BeginDragDropTargetCustom(target, ImGui::GetID(id)))
+                    return;
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(
+                    "XLAUNCH_ITEM", ImGuiDragDropFlags_AcceptBeforeDelivery |
+                    ImGuiDragDropFlags_AcceptNoDrawDefaultRect))
                 {
                     const auto source = *static_cast<const xlaunch::ItemDragPayload*>(payload->Data);
                     if (source.sourceCategory == state.selectedCategory)
                     {
-                        reorderSource = static_cast<int>(source.itemIndex);
-                        reorderTarget = static_cast<int>(index);
+                        insertionMarkerStart = ImVec2(markerX, cellMin.y + 2.0f * g_dpiScale);
+                        insertionMarkerEnd = ImVec2(markerX, cellMax.y - 2.0f * g_dpiScale);
+                        showInsertionMarker = true;
+                        if (payload->IsDelivery())
+                        {
+                            reorderSource = static_cast<int>(source.itemIndex);
+                            reorderInsertion = insertion;
+                        }
                     }
                 }
                 ImGui::EndDragDropTarget();
+            };
+            const float midpoint = (cellMin.x + cellMax.x) * 0.5f;
+            const float leftBoundary = index % columns == 0
+                ? cellMin.x : cellMin.x - horizontalGap * 0.5f;
+            const float rightBoundary = index % columns == static_cast<std::size_t>(columns - 1)
+                ? cellMax.x : cellMax.x + horizontalGap * 0.5f;
+            acceptInsertionTarget("##InsertBefore",
+                ImRect(ImVec2(leftBoundary, cellMin.y), ImVec2(midpoint, cellMax.y)),
+                static_cast<int>(index), leftBoundary);
+            acceptInsertionTarget("##InsertAfter",
+                ImRect(ImVec2(midpoint, cellMin.y), ImVec2(rightBoundary, cellMax.y)),
+                static_cast<int>(index) + 1, rightBoundary);
+            if (externalDropIntoGrid)
+            {
+                auto considerExternalInsertion = [&](std::size_t insertion, float markerX)
+                {
+                    const float closestY = std::clamp(static_cast<float>(externalPoint.y), cellMin.y, cellMax.y);
+                    const float deltaX = static_cast<float>(externalPoint.x) - markerX;
+                    const float deltaY = static_cast<float>(externalPoint.y) - closestY;
+                    const float distance = deltaX * deltaX + deltaY * deltaY;
+                    if (distance < externalInsertionDistance)
+                    {
+                        externalInsertionDistance = distance;
+                        state.externalDropInsertion = insertion;
+                        externalMarkerStart = ImVec2(markerX, cellMin.y + 2.0f * g_dpiScale);
+                        externalMarkerEnd = ImVec2(markerX, cellMax.y - 2.0f * g_dpiScale);
+                        showExternalMarker = true;
+                    }
+                };
+                considerExternalInsertion(index, leftBoundary);
+                considerExternalInsertion(index + 1, rightBoundary);
             }
-            const ImVec2 cellMax{ cellMin.x + cellWidth, cellMin.y + cellHeight };
             ImDrawList* drawList = ImGui::GetWindowDrawList();
             if (hovered)
                 drawList->AddRectFilled(cellMin, cellMax, IM_COL32(38, 43, 54, 210), 3.0f);
@@ -1193,6 +1272,14 @@ namespace
             }
             ImGui::PopID();
         }
+        if (showInsertionMarker)
+        {
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            const ImU32 markerColor = ImGui::GetColorU32(ImGuiCol_ButtonActive);
+            drawList->AddLine(insertionMarkerStart, insertionMarkerEnd, markerColor, 3.0f * g_dpiScale);
+            drawList->AddCircleFilled(insertionMarkerStart, 3.0f * g_dpiScale, markerColor);
+            drawList->AddCircleFilled(insertionMarkerEnd, 3.0f * g_dpiScale, markerColor);
+        }
         ImGui::PopStyleVar();
 
         if (ImGui::BeginPopupContextWindow("GridMenu", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
@@ -1262,16 +1349,23 @@ namespace
         }
         ImGui::EndChild();
 
-        if (reorderSource >= 0 && reorderTarget >= 0 && reorderSource != reorderTarget &&
-            reorderSource < static_cast<int>(category.items.size()) && reorderTarget < static_cast<int>(category.items.size()))
+        if (reorderSource >= 0 && reorderInsertion >= 0 &&
+            reorderSource < static_cast<int>(category.items.size()) &&
+            reorderInsertion <= static_cast<int>(category.items.size()))
         {
-            xlaunch::LaunchItem moved = std::move(category.items[reorderSource]);
-            category.items.erase(category.items.begin() + reorderSource);
-            category.items.insert(category.items.begin() + reorderTarget, std::move(moved));
-            for (std::size_t index = 0; index < category.items.size(); ++index)
-                category.items[index].sortOrder = static_cast<int>(index);
-            changed = true;
-            saveImmediately = true;
+            int destination = reorderInsertion;
+            if (destination > reorderSource)
+                --destination;
+            if (destination != reorderSource)
+            {
+                xlaunch::LaunchItem moved = std::move(category.items[reorderSource]);
+                category.items.erase(category.items.begin() + reorderSource);
+                category.items.insert(category.items.begin() + destination, std::move(moved));
+                for (std::size_t index = 0; index < category.items.size(); ++index)
+                    category.items[index].sortOrder = static_cast<int>(index);
+                changed = true;
+                saveImmediately = true;
+            }
         }
 
         if (pendingAction == PendingAction::Duplicate && pendingItem < category.items.size())
@@ -1330,6 +1424,13 @@ namespace
             ImDrawList* foreground = ImGui::GetForegroundDrawList();
             foreground->AddRectFilled(gridMin, gridMax, IM_COL32(30, 69, 130, 70), 8.0f);
             foreground->AddRect(gridMin, gridMax, IM_COL32(85, 150, 255, 255), 8.0f, 0, 3.0f);
+            if (showExternalMarker)
+            {
+                foreground->AddLine(externalMarkerStart, externalMarkerEnd,
+                    IM_COL32(105, 180, 255, 255), 4.0f * g_dpiScale);
+                foreground->AddCircleFilled(externalMarkerStart, 3.5f * g_dpiScale, IM_COL32(105, 180, 255, 255));
+                foreground->AddCircleFilled(externalMarkerEnd, 3.5f * g_dpiScale, IM_COL32(105, 180, 255, 255));
+            }
             const std::size_t targetIndex = (std::min)(state.externalDropCategory, state.config.categories.size() - 1);
             const std::string message = "释放以添加到「" + state.config.categories[targetIndex].name + "」";
             const ImVec2 textSize = ImGui::CalcTextSize(message.c_str());
@@ -1752,6 +1853,13 @@ LRESULT WINAPI WndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int showCommand)
 {
     const bool launchedAtStartup = HasCommandLineArgument(L"--startup");
+    if (HasCommandLineArgument(L"--realtime-priority"))
+    {
+        if (!SetPriorityClass(GetCurrentProcess(), REALTIME_PRIORITY_CLASS))
+            SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
+    }
+    else if (HasCommandLineArgument(L"--high-priority"))
+        SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
     HANDLE singleInstanceMutex = CreateMutexW(nullptr, FALSE, L"Local\\XLaunch.SingleInstance");
     if (singleInstanceMutex == nullptr)
         return 1;
@@ -1867,7 +1975,9 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
             [&](bool dragging, POINTL point) { state.UpdateExternalDropTarget(dragging, point); },
             [&](std::vector<xlaunch::DroppedShellItem> items, POINTL point) {
                 const std::size_t destination = state.categoryManager.HitTestCategory(point, state.selectedCategory);
-                state.HandleDroppedFiles(items, destination);
+                const std::size_t insertion = destination == state.externalDropCategory
+                    ? state.externalDropInsertion : state.config.categories[destination].items.size();
+                state.HandleDroppedFiles(items, destination, insertion);
             });
         const HRESULT registerResult = RegisterDragDrop(window, dropTarget);
         dropTargetRegistered = SUCCEEDED(registerResult);

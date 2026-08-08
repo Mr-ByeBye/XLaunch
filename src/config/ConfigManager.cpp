@@ -288,6 +288,9 @@ namespace xlaunch
                 else if (trigger == "altSpace") config.hotkey.modifiers = HotkeyAlt;
             }
             config.startWithWindows = root.value("startWithWindows", true);
+            const std::string startupPriority = root.value("startupPriority", "normal");
+            config.startupPriority = startupPriority == "realtime" ? StartupPriority::Realtime :
+                startupPriority == "high" ? StartupPriority::High : StartupPriority::Normal;
             if (const auto backup = root.find("backup"); backup != root.end() && backup->is_object())
             {
                 config.backup.automatic = backup->value("automatic", true);
@@ -397,6 +400,8 @@ namespace xlaunch
                 { "mouseDoubleClick", config.hotkey.mouseDoubleClick }
             };
             root["startWithWindows"] = config.startWithWindows;
+            root["startupPriority"] = config.startupPriority == StartupPriority::Realtime ? "realtime" :
+                config.startupPriority == StartupPriority::High ? "high" : "normal";
             root["backup"] = {
                 { "automatic", config.backup.automatic },
                 { "keepCount", config.backup.keepCount }

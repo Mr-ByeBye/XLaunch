@@ -32,6 +32,7 @@ int main()
         defaults.appearance.categoryHoverDelayMs == 250 &&
         defaults.window.startupPosition == xlaunch::StartupPositionMode::Cursor &&
         defaults.window.temporaryPinKey == xlaunch::TemporaryPinKey::Control &&
+        defaults.startupPriority == xlaunch::StartupPriority::Normal &&
         defaults.startWithWindows;
     const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
     const std::filesystem::path directory =
@@ -119,6 +120,7 @@ int main()
     config.hotkey.heldMouseButton = xlaunch::MouseButton::Middle;
     config.hotkey.mouseDoubleClick = true;
     config.startWithWindows = true;
+    config.startupPriority = xlaunch::StartupPriority::Realtime;
     config.backup.automatic = true;
     config.backup.keepCount = 7;
 
@@ -178,6 +180,8 @@ int main()
         loaded.config.hotkey.heldMouseButton == xlaunch::MouseButton::Middle && loaded.config.hotkey.mouseDoubleClick,
         "鼠标手势未保存");
     success &= Check(loaded.config.startWithWindows, "开机自启设置未保存");
+    success &= Check(loaded.config.startupPriority == xlaunch::StartupPriority::Realtime,
+        "自启优先级未保存");
     success &= Check(loaded.config.backup.automatic && loaded.config.backup.keepCount == 7, "自动备份设置未保存");
     success &= Check(!std::filesystem::exists(configPath.wstring() + L".tmp"), "临时配置文件未清理");
 

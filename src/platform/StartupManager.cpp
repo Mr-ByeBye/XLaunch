@@ -10,7 +10,7 @@ namespace xlaunch
         constexpr wchar_t kValueName[] = L"XLaunch";
     }
 
-    bool StartupManager::SetEnabled(bool enabled, std::string& error)
+    bool StartupManager::SetEnabled(bool enabled, StartupPriority priority, std::string& error)
     {
         HKEY key = nullptr;
         const LSTATUS openResult = RegCreateKeyExW(HKEY_CURRENT_USER, kRunKey, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr);
@@ -30,7 +30,10 @@ namespace xlaunch
             else
             {
                 path.resize(length);
-                const std::wstring command = L"\"" + path + L"\" --startup";
+                const wchar_t* priorityArgument = priority == StartupPriority::Realtime
+                    ? L" --realtime-priority" : priority == StartupPriority::High
+                        ? L" --high-priority" : L"";
+                const std::wstring command = L"\"" + path + L"\" --startup" + priorityArgument;
                 result = RegSetValueExW(key, kValueName, 0, REG_SZ,
                     reinterpret_cast<const BYTE*>(command.c_str()), static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t)));
             }

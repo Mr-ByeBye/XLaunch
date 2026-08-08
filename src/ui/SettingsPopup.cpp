@@ -402,7 +402,24 @@ namespace xlaunch
                 changed = true;
                 actions.startupChanged = true;
             }
-            ImGui::SameLine(130.0f);
+            ImGui::SameLine(190.0f);
+            ImGui::BeginDisabled(!config.startWithWindows);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(T("自启优先级"));
+            ImGui::SameLine();
+            int startupPriority = static_cast<int>(config.startupPriority);
+            const char* startupPriorityNames[]{ T("默认"), T("高"), T("极高（不推荐）") };
+            ImGui::SetNextItemWidth(190.0f);
+            if (ImGui::Combo("##StartupPriority", &startupPriority, startupPriorityNames, 3))
+            {
+                config.startupPriority = static_cast<StartupPriority>(startupPriority);
+                changed = true;
+                actions.startupChanged = true;
+            }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s", T("极高优先级可能影响系统响应，仅建议特殊场景使用。"));
+
             if (ImGui::Checkbox(T("自动备份"), &config.backup.automatic)) changed = true;
             ImGui::SameLine();
             ImGui::BeginDisabled(!config.backup.automatic);
