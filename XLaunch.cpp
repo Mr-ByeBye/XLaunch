@@ -68,7 +68,7 @@ namespace
     bool g_deferredHideOutsideOnly = false;
 
     constexpr ImVec4 kClearColor{ 0.055f, 0.063f, 0.078f, 1.0f };
-    constexpr const char* kVersion = "v2026080702";
+    constexpr const char* kVersion = "v2026081502";
     std::wstring Utf8ToWide(const std::string& value);
     void ApplyDarkTheme(float dpiScale);
     LRESULT WINAPI ToolWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -1853,13 +1853,12 @@ LRESULT WINAPI WndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int showCommand)
 {
     const bool launchedAtStartup = HasCommandLineArgument(L"--startup");
-    if (HasCommandLineArgument(L"--realtime-priority"))
-    {
-        if (!SetPriorityClass(GetCurrentProcess(), REALTIME_PRIORITY_CLASS))
-            SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
-    }
-    else if (HasCommandLineArgument(L"--high-priority"))
+#if !defined(XLAUNCH_DISABLE_PROCESS_PRIORITY) && !defined(XLAUNCH_DIAGNOSTIC_COMBINED)
+    if (HasCommandLineArgument(L"--high-priority"))
         SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
+    else if (HasCommandLineArgument(L"--above-normal-priority"))
+        SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS);
+#endif
     HANDLE singleInstanceMutex = CreateMutexW(nullptr, FALSE, L"Local\\XLaunch.SingleInstance");
     if (singleInstanceMutex == nullptr)
         return 1;

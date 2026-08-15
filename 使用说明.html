@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>XLaunch v2026081501 使用说明</title>
+  <style>
+    :root { color-scheme: light dark; --accent: #4f8cff; --panel: color-mix(in srgb, Canvas 94%, var(--accent) 6%); }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 16px/1.7 "Segoe UI", "Microsoft YaHei UI", sans-serif; background: Canvas; color: CanvasText; }
+    main { width: min(880px, calc(100% - 32px)); margin: 36px auto; }
+    header { padding: 28px 32px; border-radius: 18px; color: white; background: linear-gradient(135deg, #2563eb, #7c3aed); box-shadow: 0 16px 42px #0002; }
+    h1 { margin: 0 0 6px; font-size: clamp(28px, 5vw, 42px); }
+    header p { margin: 0; opacity: .9; }
+    section { margin-top: 20px; padding: 22px 26px; border: 1px solid color-mix(in srgb, CanvasText 14%, transparent); border-radius: 14px; background: var(--panel); }
+    h2 { margin: 0 0 12px; font-size: 21px; }
+    ul { margin: 8px 0; padding-left: 24px; }
+    kbd { padding: 2px 7px; border: 1px solid #8888; border-bottom-width: 3px; border-radius: 6px; background: Canvas; font: 600 14px/1.4 Consolas, monospace; }
+    .good { border-left: 5px solid #22a06b; }
+    .warn { border-left: 5px solid #e09f24; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid #8884; text-align: left; vertical-align: top; }
+    a { color: var(--accent); }
+    footer { margin: 24px 4px 40px; color: color-mix(in srgb, CanvasText 65%, transparent); }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>XLaunch 使用说明</h1>
+    <p>版本 v2026081501 · 更克制的默认设置</p>
+  </header>
+
+  <section class="good">
+    <h2>首次运行默认设置</h2>
+    <ul>
+      <li>默认不会随 Windows 开机启动。</li>
+      <li>默认使用 <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Space</kbd> 呼出或隐藏 XLaunch。</li>
+      <li>默认不会安装全局鼠标钩子。只有主动选择“鼠标按键”后才启用鼠标手势监听。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>开机自启与优先级</h2>
+    <p>需要时可在“设置 → 系统与备份”中手动启用“开机自启”。</p>
+    <table>
+      <thead><tr><th>选项</th><th>实际行为</th><th>建议</th></tr></thead>
+      <tbody>
+        <tr><td>默认</td><td>不改变进程优先级</td><td>推荐日常使用</td></tr>
+        <tr><td>高</td><td>Windows 高于正常优先级</td><td>有明确需要时使用</td></tr>
+        <tr><td>极高(不推荐)</td><td>Windows 高优先级</td><td>谨慎使用</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>升级用户</h2>
+    <p>升级不会擅自覆盖现有配置。以前已主动启用的开机自启或鼠标手势仍会保留，可在设置中随时关闭。</p>
+  </section>
+
+  <section class="warn">
+    <h2>安全说明</h2>
+    <p>XLaunch 是本地快速启动工具，不包含下载器、远程控制、进程注入或凭据读取功能。请只从可信的官方发布渠道获取程序。</p>
+    <p>部分安全软件可能关注启动器常见的“启动其他程序、全局快捷键、开机自启”等行为。如遇警告，请先核对文件来源和版本，不要直接允许来源不明的文件。</p>
+  </section>
+
+  <footer>项目主页：<a href="https://github.com/Mr-ByeBye/XLaunch">github.com/Mr-ByeBye/XLaunch</a></footer>
+</main>
+</body>
+</html>

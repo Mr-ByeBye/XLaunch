@@ -74,6 +74,7 @@
     <ClCompile>
       <AdditionalIncludeDirectories>$(ProjectDir)src;$(ProjectDir)third_party\imgui;$(ProjectDir)third_party\imgui\backends;$(ProjectDir)third_party\nlohmann;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <PreprocessorDefinitions>$(XLaunchDiagnosticDefines);%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <AdditionalDependencies>d3d11.lib;dxgi.lib;shell32.lib;shlwapi.lib;comdlg32.lib;ole32.lib;gdi32.lib;version.lib;%(AdditionalDependencies)</AdditionalDependencies>
@@ -150,6 +151,21 @@
       <EnableSegmentHeap>true</EnableSegmentHeap>
     </Manifest>
   </ItemDefinitionGroup>
+  <PropertyGroup Condition="'$(XLaunchDiagnosticProfile)'=='Conventional'">
+    <WholeProgramOptimization>false</WholeProgramOptimization>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(XLaunchDiagnosticProfile)'=='Conventional'">
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <WholeProgramOptimization>false</WholeProgramOptimization>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
+    </Link>
+  </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="src\config\ConfigManager.h" />
     <ClInclude Include="src\config\BackupManager.h" />
@@ -208,7 +224,16 @@
   <ItemGroup>
     <Image Include="Xlaunch_ico.ico" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="使用说明.txt" />
+    <None Include="使用说明.html" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
+  <Target Name="CopyUserGuides" AfterTargets="Build">
+    <Copy SourceFiles="$(ProjectDir)使用说明.txt;$(ProjectDir)使用说明.html"
+          DestinationFolder="$(OutDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
 </Project>

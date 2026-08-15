@@ -130,7 +130,7 @@ namespace xlaunch
     struct HotkeySettings
     {
         bool enabled = true;
-        HotkeyTrigger trigger = HotkeyTrigger::MouseGesture;
+        HotkeyTrigger trigger = HotkeyTrigger::Keyboard;
         int modifiers = HotkeyControl | HotkeyAlt;
         int virtualKey = 0x20;
         MouseButton mouseButton = MouseButton::Middle;
@@ -146,9 +146,9 @@ namespace xlaunch
 
     enum class StartupPriority
     {
-        Normal,
+        Disabled,
         High,
-        Realtime
+        VeryHigh
     };
 
     struct LaunchItem
@@ -193,8 +193,8 @@ namespace xlaunch
         AppearanceSettings appearance;
         WindowSettings window;
         HotkeySettings hotkey;
-        bool startWithWindows = true;
-        StartupPriority startupPriority = StartupPriority::Normal;
+        bool startWithWindows = false;
+        StartupPriority startupPriority = StartupPriority::Disabled;
         BackupSettings backup;
         std::vector<Category> categories;
     };

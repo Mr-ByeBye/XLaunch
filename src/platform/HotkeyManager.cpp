@@ -45,6 +45,10 @@ namespace xlaunch
 
         if (settings.trigger == HotkeyTrigger::MouseGesture)
         {
+#if defined(XLAUNCH_DISABLE_MOUSE_HOOK) || defined(XLAUNCH_DIAGNOSTIC_COMBINED)
+            error = "此诊断版本未编译全局鼠标手势功能。";
+            return false;
+#else
             std::promise<bool> ready;
             auto result = ready.get_future();
             mouseThread_ = std::thread([this, signal = std::move(ready)]() mutable
@@ -77,6 +81,7 @@ namespace xlaunch
             }
             error.clear();
             return true;
+#endif
         }
 
         keyboardRegistered_ = RegisterHotKey(window_, kHotkeyId, WindowsModifiers(settings.modifiers), static_cast<UINT>(settings.virtualKey)) != FALSE;
@@ -156,6 +161,7 @@ namespace xlaunch
         itemHotkeys_.clear();
     }
 
+#if !defined(XLAUNCH_DISABLE_MOUSE_HOOK) && !defined(XLAUNCH_DIAGNOSTIC_COMBINED)
     LRESULT CALLBACK HotkeyManager::MouseHook(int code, WPARAM wParam, LPARAM lParam)
     {
         if (code < 0 || (wParam != WM_MBUTTONDOWN && wParam != WM_MBUTTONUP &&
@@ -227,4 +233,5 @@ namespace xlaunch
         }
         return CallNextHookEx(nullptr, code, wParam, lParam);
     }
+#endif
 }

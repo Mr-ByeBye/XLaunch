@@ -220,8 +220,8 @@ int main(int argc, char** argv)
     xlaunch::HotkeySettings hotkeySettings;
     hotkeySettings.enabled = true;
     hotkeySettings.trigger = xlaunch::HotkeyTrigger::Keyboard;
-    hotkeySettings.modifiers = xlaunch::HotkeyControl | xlaunch::HotkeyShift;
-    hotkeySettings.virtualKey = VK_F12;
+    hotkeySettings.modifiers = xlaunch::HotkeyControl | xlaunch::HotkeyAlt | xlaunch::HotkeyShift;
+    hotkeySettings.virtualKey = VK_F24;
     std::string hotkeyError;
     success &= Check(hotkeyManager.Apply(GetConsoleWindow(), hotkeySettings, hotkeyError), hotkeyError.c_str());
     xlaunch::AppConfig itemHotkeyConfig;
@@ -229,7 +229,7 @@ int main(int argc, char** argv)
     xlaunch::LaunchItem hotkeyItem;
     hotkeyItem.id = "hotkey-item";
     hotkeyItem.automaticName = "Hotkey item";
-    hotkeyItem.globalShortcut = { true, xlaunch::HotkeyControl | xlaunch::HotkeyShift, VK_F11 };
+    hotkeyItem.globalShortcut = { true, xlaunch::HotkeyControl | xlaunch::HotkeyAlt | xlaunch::HotkeyShift, VK_F23 };
     itemHotkeyConfig.categories.front().items.push_back(hotkeyItem);
     success &= Check(hotkeyManager.ApplyItemHotkeys(GetConsoleWindow(), itemHotkeyConfig, hotkeyError), hotkeyError.c_str());
     const std::string* registeredItemId = hotkeyManager.ItemIdForHotkey(1000);

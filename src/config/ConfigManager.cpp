@@ -276,7 +276,7 @@ namespace xlaunch
             if (const auto hotkey = root.find("hotkey"); hotkey != root.end() && hotkey->is_object())
             {
                 config.hotkey.enabled = hotkey->value("enabled", true);
-                const std::string trigger = hotkey->value("trigger", "mouseMiddle");
+                const std::string trigger = hotkey->value("trigger", "keyboard");
                 config.hotkey.trigger = ReadHotkeyTrigger(trigger);
                 config.hotkey.modifiers = hotkey->value("modifiers", HotkeyControl | HotkeyAlt);
                 config.hotkey.virtualKey = hotkey->value("virtualKey", 0x20);
@@ -287,10 +287,11 @@ namespace xlaunch
                 else if (trigger == "ctrlShiftSpace") config.hotkey.modifiers = HotkeyControl | HotkeyShift;
                 else if (trigger == "altSpace") config.hotkey.modifiers = HotkeyAlt;
             }
-            config.startWithWindows = root.value("startWithWindows", true);
-            const std::string startupPriority = root.value("startupPriority", "normal");
-            config.startupPriority = startupPriority == "realtime" ? StartupPriority::Realtime :
-                startupPriority == "high" ? StartupPriority::High : StartupPriority::Normal;
+            config.startWithWindows = root.value("startWithWindows", false);
+            const std::string startupPriority = root.value("startupPriority", "disabled");
+            config.startupPriority = (startupPriority == "veryHigh" || startupPriority == "realtime")
+                ? StartupPriority::VeryHigh
+                : startupPriority == "high" ? StartupPriority::High : StartupPriority::Disabled;
             if (const auto backup = root.find("backup"); backup != root.end() && backup->is_object())
             {
                 config.backup.automatic = backup->value("automatic", true);
@@ -400,8 +401,8 @@ namespace xlaunch
                 { "mouseDoubleClick", config.hotkey.mouseDoubleClick }
             };
             root["startWithWindows"] = config.startWithWindows;
-            root["startupPriority"] = config.startupPriority == StartupPriority::Realtime ? "realtime" :
-                config.startupPriority == StartupPriority::High ? "high" : "normal";
+            root["startupPriority"] = config.startupPriority == StartupPriority::VeryHigh ? "veryHigh" :
+                config.startupPriority == StartupPriority::High ? "high" : "disabled";
             root["backup"] = {
                 { "automatic", config.backup.automatic },
                 { "keepCount", config.backup.keepCount }

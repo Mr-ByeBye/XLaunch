@@ -32,8 +32,12 @@ int main()
         defaults.appearance.categoryHoverDelayMs == 250 &&
         defaults.window.startupPosition == xlaunch::StartupPositionMode::Cursor &&
         defaults.window.temporaryPinKey == xlaunch::TemporaryPinKey::Control &&
-        defaults.startupPriority == xlaunch::StartupPriority::Normal &&
-        defaults.startWithWindows;
+        defaults.hotkey.enabled &&
+        defaults.hotkey.trigger == xlaunch::HotkeyTrigger::Keyboard &&
+        defaults.hotkey.modifiers == (xlaunch::HotkeyControl | xlaunch::HotkeyAlt) &&
+        defaults.hotkey.virtualKey == 0x20 &&
+        defaults.startupPriority == xlaunch::StartupPriority::Disabled &&
+        !defaults.startWithWindows;
     const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
     const std::filesystem::path directory =
         std::filesystem::temp_directory_path() / ("XLaunchConfigTest-" + std::to_string(suffix));
@@ -120,7 +124,7 @@ int main()
     config.hotkey.heldMouseButton = xlaunch::MouseButton::Middle;
     config.hotkey.mouseDoubleClick = true;
     config.startWithWindows = true;
-    config.startupPriority = xlaunch::StartupPriority::Realtime;
+    config.startupPriority = xlaunch::StartupPriority::VeryHigh;
     config.backup.automatic = true;
     config.backup.keepCount = 7;
 
@@ -180,10 +184,23 @@ int main()
         loaded.config.hotkey.heldMouseButton == xlaunch::MouseButton::Middle && loaded.config.hotkey.mouseDoubleClick,
         "鼠标手势未保存");
     success &= Check(loaded.config.startWithWindows, "开机自启设置未保存");
-    success &= Check(loaded.config.startupPriority == xlaunch::StartupPriority::Realtime,
+    success &= Check(loaded.config.startupPriority == xlaunch::StartupPriority::VeryHigh,
         "自启优先级未保存");
     success &= Check(loaded.config.backup.automatic && loaded.config.backup.keepCount == 7, "自动备份设置未保存");
     success &= Check(!std::filesystem::exists(configPath.wstring() + L".tmp"), "临时配置文件未清理");
+
+    const std::filesystem::path legacyConfigPath = directory / "legacy-realtime.json";
+    std::ofstream(legacyConfigPath) << R"({"startupPriority":"realtime"})";
+    const xlaunch::ConfigManager legacyManager(legacyConfigPath);
+    const auto legacyConfig = legacyManager.Load();
+    success &= Check(legacyConfig.error.empty() &&
+        legacyConfig.config.startupPriority == xlaunch::StartupPriority::VeryHigh,
+        "旧版 realtime 优先级未安全降级");
+    success &= Check(!legacyConfig.config.startWithWindows &&
+        legacyConfig.config.hotkey.trigger == xlaunch::HotkeyTrigger::Keyboard &&
+        legacyConfig.config.hotkey.modifiers == (xlaunch::HotkeyControl | xlaunch::HotkeyAlt) &&
+        legacyConfig.config.hotkey.virtualKey == 0x20,
+        "缺省配置未使用安全的自启和键盘快捷键设置");
 
     error.clear();
     success &= Check(xlaunch::BackupManager::CreateAutomatic(configPath, 7, true, error), error.c_str());
