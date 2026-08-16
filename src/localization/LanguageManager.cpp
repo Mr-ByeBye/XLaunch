@@ -61,6 +61,8 @@ namespace xlaunch
 悬停延迟（毫秒）=悬停延迟（毫秒）
 快捷呼出=快捷呼出
 启用快捷呼出=启用快捷呼出
+启用键盘快捷键=启用键盘快捷键
+启用鼠标快捷键=启用鼠标快捷键
 鼠标按键=鼠标按键
 键盘快捷键=键盘快捷键
 快捷键=快捷键
@@ -200,6 +202,8 @@ namespace xlaunch
 悬停延迟（毫秒）=懸停延遲（毫秒）
 快捷呼出=快速呼出
 启用快捷呼出=啟用快速呼出
+启用键盘快捷键=啟用鍵盤快速鍵
+启用鼠标快捷键=啟用滑鼠快速鍵
 鼠标按键=滑鼠按鍵
 键盘快捷键=鍵盤快速鍵
 快捷键=快速鍵
@@ -339,6 +343,8 @@ namespace xlaunch
 悬停延迟（毫秒）=Hover delay (ms)
 快捷呼出=Quick activation
 启用快捷呼出=Enable quick activation
+启用键盘快捷键=Enable keyboard shortcut
+启用鼠标快捷键=Enable mouse shortcut
 鼠标按键=Mouse button
 键盘快捷键=Keyboard shortcut
 快捷键=Shortcut

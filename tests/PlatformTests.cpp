@@ -218,8 +218,8 @@ int main(int argc, char** argv)
 
     xlaunch::HotkeyManager hotkeyManager;
     xlaunch::HotkeySettings hotkeySettings;
-    hotkeySettings.enabled = true;
-    hotkeySettings.trigger = xlaunch::HotkeyTrigger::Keyboard;
+    hotkeySettings.keyboardEnabled = true;
+    hotkeySettings.mouseEnabled = false;
     hotkeySettings.modifiers = xlaunch::HotkeyControl | xlaunch::HotkeyAlt | xlaunch::HotkeyShift;
     hotkeySettings.virtualKey = VK_F24;
     std::string hotkeyError;
@@ -235,7 +235,8 @@ int main(int argc, char** argv)
     const std::string* registeredItemId = hotkeyManager.ItemIdForHotkey(1000);
     success &= Check(registeredItemId != nullptr && *registeredItemId == "hotkey-item", "项目全局快捷键映射错误");
     hotkeyManager.Stop();
-    hotkeySettings.trigger = xlaunch::HotkeyTrigger::MouseGesture;
+    hotkeySettings.keyboardEnabled = false;
+    hotkeySettings.mouseEnabled = true;
     hotkeySettings.mouseButton = xlaunch::MouseButton::Middle;
     success &= Check(hotkeyManager.Apply(GetConsoleWindow(), hotkeySettings, hotkeyError), hotkeyError.c_str());
     hotkeyManager.Stop();

@@ -68,7 +68,7 @@ namespace
     bool g_deferredHideOutsideOnly = false;
 
     constexpr ImVec4 kClearColor{ 0.055f, 0.063f, 0.078f, 1.0f };
-    constexpr const char* kVersion = "v2026081502";
+    constexpr const char* kVersion = "v2026081601";
     std::wstring Utf8ToWide(const std::string& value);
     void ApplyDarkTheme(float dpiScale);
     LRESULT WINAPI ToolWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -334,6 +334,13 @@ namespace
             config = std::move(result.config);
             if (firstRun)
                 config.appearance.language = xlaunch::LanguageManager::DetectSystemLanguage();
+            if (config.releaseVersion != kVersion)
+            {
+                std::error_code languageCleanupError;
+                std::filesystem::remove_all(configManager.Path().parent_path() / "lang", languageCleanupError);
+                config.releaseVersion = kVersion;
+                MarkDirty();
+            }
             xlaunch::LanguageManager::Initialize(configManager.Path().parent_path(), config.appearance.language);
             if (firstRun && !config.categories.empty())
             {
@@ -391,8 +398,6 @@ namespace
             std::string error;
             if (!hotkeyManager.Apply(window, config.hotkey, error))
             {
-                config.hotkey.enabled = false;
-                MarkDirty();
                 ShowError(error);
             }
         }

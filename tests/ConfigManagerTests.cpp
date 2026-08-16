@@ -32,8 +32,8 @@ int main()
         defaults.appearance.categoryHoverDelayMs == 250 &&
         defaults.window.startupPosition == xlaunch::StartupPositionMode::Cursor &&
         defaults.window.temporaryPinKey == xlaunch::TemporaryPinKey::Control &&
-        defaults.hotkey.enabled &&
-        defaults.hotkey.trigger == xlaunch::HotkeyTrigger::Keyboard &&
+        defaults.hotkey.keyboardEnabled &&
+        !defaults.hotkey.mouseEnabled &&
         defaults.hotkey.modifiers == (xlaunch::HotkeyControl | xlaunch::HotkeyAlt) &&
         defaults.hotkey.virtualKey == 0x20 &&
         defaults.startupPriority == xlaunch::StartupPriority::Disabled &&
@@ -116,8 +116,8 @@ int main()
     config.window.title = "我的启动器";
     config.window.centerTitle = true;
     config.window.keepVisible = true;
-    config.hotkey.enabled = true;
-    config.hotkey.trigger = xlaunch::HotkeyTrigger::Keyboard;
+    config.hotkey.keyboardEnabled = true;
+    config.hotkey.mouseEnabled = true;
     config.hotkey.modifiers = xlaunch::HotkeyControl | xlaunch::HotkeyShift;
     config.hotkey.virtualKey = 'K';
     config.hotkey.mouseButton = xlaunch::MouseButton::X2;
@@ -176,8 +176,8 @@ int main()
     success &= Check(loaded.config.window.width == 888 && loaded.config.window.height == 666, "窗口尺寸未保存");
     success &= Check(loaded.config.window.title == "我的启动器" && loaded.config.window.centerTitle && loaded.config.window.keepVisible,
         "自定义标题或固定显示状态未保存");
-    success &= Check(loaded.config.hotkey.enabled, "快捷键启用状态未保存");
-    success &= Check(loaded.config.hotkey.trigger == xlaunch::HotkeyTrigger::Keyboard, "快捷键类型未保存");
+    success &= Check(loaded.config.hotkey.keyboardEnabled && loaded.config.hotkey.mouseEnabled,
+        "键盘和鼠标快捷键共存状态未保存");
     success &= Check(loaded.config.hotkey.modifiers == (xlaunch::HotkeyControl | xlaunch::HotkeyShift) &&
         loaded.config.hotkey.virtualKey == 'K', "自定义快捷键未保存");
     success &= Check(loaded.config.hotkey.mouseButton == xlaunch::MouseButton::X2 &&
@@ -197,10 +197,18 @@ int main()
         legacyConfig.config.startupPriority == xlaunch::StartupPriority::VeryHigh,
         "旧版 realtime 优先级未安全降级");
     success &= Check(!legacyConfig.config.startWithWindows &&
-        legacyConfig.config.hotkey.trigger == xlaunch::HotkeyTrigger::Keyboard &&
+        legacyConfig.config.hotkey.keyboardEnabled && !legacyConfig.config.hotkey.mouseEnabled &&
         legacyConfig.config.hotkey.modifiers == (xlaunch::HotkeyControl | xlaunch::HotkeyAlt) &&
         legacyConfig.config.hotkey.virtualKey == 0x20,
         "缺省配置未使用安全的自启和键盘快捷键设置");
+
+    const std::filesystem::path legacyMouseConfigPath = directory / "legacy-mouse-hotkey.json";
+    std::ofstream(legacyMouseConfigPath) << R"({"hotkey":{"enabled":true,"trigger":"mouseGesture","mouseButton":"x1"}})";
+    const auto legacyMouseConfig = xlaunch::ConfigManager(legacyMouseConfigPath).Load();
+    success &= Check(legacyMouseConfig.error.empty() && !legacyMouseConfig.config.hotkey.keyboardEnabled &&
+        legacyMouseConfig.config.hotkey.mouseEnabled &&
+        legacyMouseConfig.config.hotkey.mouseButton == xlaunch::MouseButton::X1,
+        "旧版鼠标呼出配置未正确迁移");
 
     error.clear();
     success &= Check(xlaunch::BackupManager::CreateAutomatic(configPath, 7, true, error), error.c_str());

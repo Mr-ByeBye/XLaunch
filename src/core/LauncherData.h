@@ -114,12 +114,6 @@ namespace xlaunch
         int height = 500;
     };
 
-    enum class HotkeyTrigger
-    {
-        MouseGesture,
-        Keyboard
-    };
-
     enum class MouseButton { None, Middle, X1, X2 };
 
     inline constexpr int HotkeyControl = 1 << 0;
@@ -129,8 +123,8 @@ namespace xlaunch
 
     struct HotkeySettings
     {
-        bool enabled = true;
-        HotkeyTrigger trigger = HotkeyTrigger::Keyboard;
+        bool keyboardEnabled = true;
+        bool mouseEnabled = false;
         int modifiers = HotkeyControl | HotkeyAlt;
         int virtualKey = 0x20;
         MouseButton mouseButton = MouseButton::Middle;
@@ -190,6 +184,7 @@ namespace xlaunch
     struct AppConfig
     {
         int version = 2;
+        std::string releaseVersion;
         AppearanceSettings appearance;
         WindowSettings window;
         HotkeySettings hotkey;

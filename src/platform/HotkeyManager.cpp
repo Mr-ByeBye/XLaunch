@@ -37,17 +37,21 @@ namespace xlaunch
         StopToggle();
         window_ = window;
         settings_ = settings;
-        if (!settings.enabled)
+        std::string failures;
+
+        if (settings.keyboardEnabled)
         {
-            error.clear();
-            return true;
+            keyboardRegistered_ = RegisterHotKey(window_, kHotkeyId, WindowsModifiers(settings.modifiers),
+                static_cast<UINT>(settings.virtualKey)) != FALSE;
+            if (!keyboardRegistered_)
+                failures = "注册全局键盘快捷键失败，可能已被其他程序占用。" + WindowsError(GetLastError());
         }
 
-        if (settings.trigger == HotkeyTrigger::MouseGesture)
+        if (settings.mouseEnabled)
         {
 #if defined(XLAUNCH_DISABLE_MOUSE_HOOK) || defined(XLAUNCH_DIAGNOSTIC_COMBINED)
-            error = "此诊断版本未编译全局鼠标手势功能。";
-            return false;
+            if (!failures.empty()) failures += "\n";
+            failures += "此诊断版本未编译全局鼠标手势功能。";
 #else
             std::promise<bool> ready;
             auto result = ready.get_future();
@@ -76,22 +80,13 @@ namespace xlaunch
             {
                 mouseThread_.join();
                 mouseThreadId_ = 0;
-                error = "注册全局鼠标手势失败。" + WindowsError(mouseHookError_);
-                return false;
+                if (!failures.empty()) failures += "\n";
+                failures += "注册全局鼠标手势失败。" + WindowsError(mouseHookError_);
             }
-            error.clear();
-            return true;
 #endif
         }
-
-        keyboardRegistered_ = RegisterHotKey(window_, kHotkeyId, WindowsModifiers(settings.modifiers), static_cast<UINT>(settings.virtualKey)) != FALSE;
-        if (!keyboardRegistered_)
-        {
-            error = "注册全局键盘快捷键失败，可能已被其他程序占用。" + WindowsError(GetLastError());
-            return false;
-        }
-        error.clear();
-        return true;
+        error = std::move(failures);
+        return error.empty();
     }
 
     bool HotkeyManager::ApplyItemHotkeys(HWND window, const AppConfig& config, std::string& error)

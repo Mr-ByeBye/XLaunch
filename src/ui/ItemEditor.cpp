@@ -307,8 +307,7 @@ namespace xlaunch
                 {
                     return left.enabled && right.enabled && left.virtualKey == right.virtualKey && left.modifiers == right.modifiers;
                 };
-                bool globalConflict = draft.globalShortcut.enabled && config.hotkey.enabled &&
-                    config.hotkey.trigger == HotkeyTrigger::Keyboard &&
+                bool globalConflict = draft.globalShortcut.enabled && config.hotkey.keyboardEnabled &&
                     draft.globalShortcut.virtualKey == config.hotkey.virtualKey &&
                     draft.globalShortcut.modifiers == config.hotkey.modifiers;
                 bool localConflict = false;

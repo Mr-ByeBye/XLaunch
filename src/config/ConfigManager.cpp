@@ -105,11 +105,6 @@ namespace xlaunch
             }
         }
 
-        HotkeyTrigger ReadHotkeyTrigger(const std::string& value)
-        {
-            return value == "keyboard" ? HotkeyTrigger::Keyboard : HotkeyTrigger::MouseGesture;
-        }
-
         MouseButton ReadMouseButton(const std::string& value)
         {
             if (value == "middle") return MouseButton::Middle;
@@ -232,6 +227,7 @@ namespace xlaunch
             const json root = json::parse(input);
             AppConfig config;
             config.version = root.value("version", 1);
+            config.releaseVersion = root.value("releaseVersion", "");
             if (const auto appearance = root.find("appearance"); appearance != root.end() && appearance->is_object())
             {
                 config.appearance.showNames = appearance->value("showNames", true);
@@ -275,9 +271,18 @@ namespace xlaunch
 
             if (const auto hotkey = root.find("hotkey"); hotkey != root.end() && hotkey->is_object())
             {
-                config.hotkey.enabled = hotkey->value("enabled", true);
                 const std::string trigger = hotkey->value("trigger", "keyboard");
-                config.hotkey.trigger = ReadHotkeyTrigger(trigger);
+                if (hotkey->contains("keyboardEnabled") || hotkey->contains("mouseEnabled"))
+                {
+                    config.hotkey.keyboardEnabled = hotkey->value("keyboardEnabled", true);
+                    config.hotkey.mouseEnabled = hotkey->value("mouseEnabled", false);
+                }
+                else
+                {
+                    const bool enabled = hotkey->value("enabled", true);
+                    config.hotkey.keyboardEnabled = enabled && trigger != "mouseGesture";
+                    config.hotkey.mouseEnabled = enabled && trigger == "mouseGesture";
+                }
                 config.hotkey.modifiers = hotkey->value("modifiers", HotkeyControl | HotkeyAlt);
                 config.hotkey.virtualKey = hotkey->value("virtualKey", 0x20);
                 config.hotkey.mouseButton = ReadMouseButton(hotkey->value("mouseButton", "middle"));
@@ -360,6 +365,7 @@ namespace xlaunch
 
             json root;
             root["version"] = config.version;
+            root["releaseVersion"] = config.releaseVersion;
             root["appearance"] = {
                 { "showNames", config.appearance.showNames },
                 { "showBorders", config.appearance.showBorders },
@@ -392,8 +398,8 @@ namespace xlaunch
                 { "height", config.window.height }
             };
             root["hotkey"] = {
-                { "enabled", config.hotkey.enabled },
-                { "trigger", config.hotkey.trigger == HotkeyTrigger::MouseGesture ? "mouseGesture" : "keyboard" },
+                { "keyboardEnabled", config.hotkey.keyboardEnabled },
+                { "mouseEnabled", config.hotkey.mouseEnabled },
                 { "modifiers", config.hotkey.modifiers },
                 { "virtualKey", config.hotkey.virtualKey },
                 { "mouseButton", MouseButtonName(config.hotkey.mouseButton) },

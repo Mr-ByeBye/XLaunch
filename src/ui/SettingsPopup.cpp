@@ -270,73 +270,69 @@ namespace xlaunch
             if (ImGui::BeginTabItem(T("呼出与位置")))
             {
             SectionTitle(T("快捷呼出"));
-            if (ImGui::Checkbox(T("启用快捷呼出"), &config.hotkey.enabled))
+            if (ImGui::Checkbox(T("启用键盘快捷键"), &config.hotkey.keyboardEnabled))
+            {
+                if (!config.hotkey.keyboardEnabled) capturingHotkey_ = false;
+                changed = true;
+                actions.hotkeyChanged = true;
+            }
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!config.hotkey.keyboardEnabled);
+            ImGui::TextUnformatted(T("快捷键"));
+            ImGui::SameLine();
+            const std::string label = capturingHotkey_ ? T("请按下快捷键…") : HotkeyText(config.hotkey);
+            ImGui::Button(label.c_str(), ImVec2(200.0f, 0.0f));
+            ImGui::SameLine();
+            if (ImGui::Button(capturingHotkey_ ? T("取消录制") : T("录制")))
+            {
+                if (capturingHotkey_)
+                {
+                    capturingHotkey_ = false;
+                    actions.hotkeyChanged = true;
+                }
+                else
+                {
+                    capturingHotkey_ = true;
+                    captureStartFrame_ = ImGui::GetFrameCount();
+                    actions.suspendHotkey = true;
+                }
+            }
+            ImGui::EndDisabled();
+
+            if (ImGui::Checkbox(T("启用鼠标快捷键"), &config.hotkey.mouseEnabled))
             {
                 changed = true;
                 actions.hotkeyChanged = true;
             }
             ImGui::SameLine();
-            const char* triggerNames[]{ T("鼠标按键"), T("键盘快捷键") };
-            int trigger = static_cast<int>(config.hotkey.trigger);
-            ImGui::SetNextItemWidth(140.0f);
-            if (ImGui::Combo("##Trigger", &trigger, triggerNames, 2))
+            ImGui::BeginDisabled(!config.hotkey.mouseEnabled);
+            const char* mouseNames[]{ T("无"), T("中键"), T("侧键 1"), T("侧键 2") };
+            int primary = static_cast<int>(config.hotkey.mouseButton);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(T("触发按键"));
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(100.0f);
+            if (ImGui::Combo("##MousePrimary", &primary, mouseNames, 4))
             {
-                config.hotkey.trigger = static_cast<HotkeyTrigger>(trigger);
-                changed = true;
-                actions.hotkeyChanged = true;
+                config.hotkey.mouseButton = static_cast<MouseButton>(primary);
+                changed = true; actions.hotkeyChanged = true;
             }
-
-            if (config.hotkey.trigger == HotkeyTrigger::Keyboard)
+            ImGui::SameLine();
+            ImGui::TextUnformatted(T("组合键"));
+            ImGui::SameLine();
+            int held = static_cast<int>(config.hotkey.heldMouseButton);
+            ImGui::SetNextItemWidth(100.0f);
+            if (ImGui::Combo("##MouseHeld", &held, mouseNames, 4))
             {
-                ImGui::TextUnformatted(T("快捷键"));
-                ImGui::SameLine();
-                const std::string label = capturingHotkey_ ? T("请按下快捷键…") : HotkeyText(config.hotkey);
-                ImGui::Button(label.c_str(), ImVec2(200.0f, 0.0f));
-                ImGui::SameLine();
-                if (ImGui::Button(capturingHotkey_ ? T("取消录制") : T("录制")))
-                {
-                    if (capturingHotkey_)
-                    {
-                        capturingHotkey_ = false;
-                        actions.hotkeyChanged = true;
-                    }
-                    else
-                    {
-                        capturingHotkey_ = true;
-                        captureStartFrame_ = ImGui::GetFrameCount();
-                        actions.suspendHotkey = true;
-                    }
-                }
+                config.hotkey.heldMouseButton = static_cast<MouseButton>(held);
+                changed = true; actions.hotkeyChanged = true;
             }
-            else
+            ImGui::SameLine();
+            if (ImGui::Checkbox(T("双击"), &config.hotkey.mouseDoubleClick))
             {
-                const char* mouseNames[]{ T("无"), T("中键"), T("侧键 1"), T("侧键 2") };
-                int primary = static_cast<int>(config.hotkey.mouseButton);
-                ImGui::AlignTextToFramePadding();
-                ImGui::TextUnformatted(T("触发按键"));
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(100.0f);
-                if (ImGui::Combo("##MousePrimary", &primary, mouseNames, 4))
-                {
-                    config.hotkey.mouseButton = static_cast<MouseButton>(primary);
-                    changed = true; actions.hotkeyChanged = true;
-                }
-                ImGui::SameLine();
-                ImGui::TextUnformatted(T("组合键"));
-                ImGui::SameLine();
-                int held = static_cast<int>(config.hotkey.heldMouseButton);
-                ImGui::SetNextItemWidth(100.0f);
-                if (ImGui::Combo("##MouseHeld", &held, mouseNames, 4))
-                {
-                    config.hotkey.heldMouseButton = static_cast<MouseButton>(held);
-                    changed = true; actions.hotkeyChanged = true;
-                }
-                ImGui::SameLine();
-                if (ImGui::Checkbox(T("双击"), &config.hotkey.mouseDoubleClick))
-                {
-                    changed = true; actions.hotkeyChanged = true;
-                }
+                changed = true; actions.hotkeyChanged = true;
             }
+            ImGui::EndDisabled();
 
             ImGui::Spacing();
             SectionTitle(T("连续启动"));
