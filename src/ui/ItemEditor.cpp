@@ -328,8 +328,10 @@ namespace xlaunch
                 {
                     if (itemIndex_ < config.categories[categoryIndex_].items.size())
                     {
-                        iconCache.Invalidate(config.categories[categoryIndex_].items[itemIndex_].id);
-                        config.categories[categoryIndex_].items[itemIndex_] = std::move(draft);
+                        LaunchItem& original = config.categories[categoryIndex_].items[itemIndex_];
+                        draft.sortOrder = original.sortOrder;
+                        iconCache.Invalidate(original.id);
+                        original = std::move(draft);
                     }
                     else
                         validationError_ = "原启动项目已不存在。";
