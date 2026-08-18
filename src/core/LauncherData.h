@@ -138,13 +138,6 @@ namespace xlaunch
         int keepCount = 10;
     };
 
-    enum class StartupPriority
-    {
-        Disabled,
-        High,
-        VeryHigh
-    };
-
     struct LaunchItem
     {
         struct Shortcut
@@ -189,7 +182,6 @@ namespace xlaunch
         WindowSettings window;
         HotkeySettings hotkey;
         bool startWithWindows = false;
-        StartupPriority startupPriority = StartupPriority::Disabled;
         BackupSettings backup;
         std::vector<Category> categories;
     };

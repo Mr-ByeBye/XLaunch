@@ -90,11 +90,6 @@ namespace xlaunch
 右下=右下
 使用当前位置=使用当前位置
 开机自启=开机自启
-自启优先级=自启优先级
-默认=默认
-高=高
-极高(不推荐)=极高(不推荐)
-"高"使用高于正常优先级,"极高"使用高优先级.="高"使用高于正常优先级,"极高"使用高优先级.
 自动备份=自动备份
 份=份
 立即备份=立即备份
@@ -231,11 +226,6 @@ namespace xlaunch
 右下=右下
 使用当前位置=使用目前位置
 开机自启=開機自動啟動
-自启优先级=自啟優先順序
-默认=預設
-高=高
-极高(不推荐)=極高(不建議)
-"高"使用高于正常优先级,"极高"使用高优先级.="高"使用高於正常優先順序,"極高"使用高優先順序.
 自动备份=自動備份
 份=份
 立即备份=立即備份
@@ -372,11 +362,6 @@ namespace xlaunch
 右下=Bottom right
 使用当前位置=Use current position
 开机自启=Start with Windows
-自启优先级=Startup priority
-默认=Default
-高=High
-极高(不推荐)=Very high (not recommended)
-"高"使用高于正常优先级,"极高"使用高优先级.=High uses above-normal process priority; Very high uses high priority.
 自动备份=Automatic backup
 份=copies
 立即备份=Back up now

@@ -12,10 +12,9 @@ namespace xlaunch
     }
 #endif
 
-    bool StartupManager::SetEnabled(bool enabled, StartupPriority priority, std::string& error)
+    bool StartupManager::SetEnabled(bool enabled, std::string& error)
     {
 #if defined(XLAUNCH_DISABLE_AUTOSTART) || defined(XLAUNCH_DIAGNOSTIC_COMBINED)
-        (void)priority;
         if (enabled)
         {
             error = "此诊断版本未编译开机自启功能。";
@@ -49,10 +48,7 @@ namespace xlaunch
             else
             {
                 path.resize(length);
-                const wchar_t* priorityArgument = priority == StartupPriority::VeryHigh
-                    ? L" --high-priority" : priority == StartupPriority::High
-                        ? L" --above-normal-priority" : L"";
-                const std::wstring command = L"\"" + path + L"\" --startup" + priorityArgument;
+                const std::wstring command = L"\"" + path + L"\" --startup";
                 result = RegSetValueExW(key, kValueName, 0, REG_SZ,
                     reinterpret_cast<const BYTE*>(command.c_str()), static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t)));
             }
