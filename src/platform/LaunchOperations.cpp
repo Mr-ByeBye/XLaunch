@@ -24,7 +24,6 @@ namespace xlaunch
             MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()), result.data(), size);
             return result;
         }
-
         std::string WideToUtf8(const std::wstring& value)
         {
             if (value.empty())
@@ -67,7 +66,11 @@ namespace xlaunch
             // XLaunch owns a persistent UI message loop, so the Shell may finish
             // DDE or execution-delegate activation in the background. Forcing
             // SEE_MASK_NOASYNC here can stall the render thread during handoff.
-            info.fMask = SEE_MASK_FLAG_NO_UI | SEE_MASK_ASYNCOK;
+            // Keep Windows in charge of trust and error prompts (including
+            // SmartScreen) and make the active XLaunch window their owner, so a
+            // first-run security confirmation is visible instead of silent.
+            info.fMask = SEE_MASK_ASYNCOK;
+            info.hwnd = GetActiveWindow();
             info.lpVerb = verb;
             info.lpFile = target.c_str();
             info.lpParameters = parameters.empty() ? nullptr : parameters.c_str();
@@ -96,6 +99,7 @@ namespace xlaunch
             CoTaskMemFree(itemIdList);
             return launched ? OperationResult{ true, {} } : OperationResult{ false, FormatWindowsError(error) };
         }
+
     }
 
     OperationResult Launch(const LaunchItem& item, bool forceAdministrator)

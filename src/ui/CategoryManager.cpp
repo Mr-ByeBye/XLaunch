@@ -373,6 +373,11 @@ namespace xlaunch
                 ImGui::EndDragDropTarget();
             }
 
+            // Give the compact category menu its own breathing room. The main
+            // category bar deliberately has tight spacing, which otherwise makes
+            // popup labels appear to touch the window border.
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f * dpiScale, 8.0f * dpiScale));
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f * dpiScale, 5.0f * dpiScale));
             if (ImGui::BeginPopupContextItem("CategoryMenu"))
             {
                 if (ImGui::MenuItem(T("重命名")))
@@ -389,6 +394,7 @@ namespace xlaunch
                 }
                 ImGui::EndPopup();
             }
+            ImGui::PopStyleVar(2);
             ImGui::PopID();
         }
 

@@ -68,7 +68,7 @@ namespace
     bool g_deferredHideOutsideOnly = false;
 
     constexpr ImVec4 kClearColor{ 0.055f, 0.063f, 0.078f, 1.0f };
-    constexpr const char* kVersion = "v2026081802";
+    constexpr const char* kVersion = "v2026082203";
     std::wstring Utf8ToWide(const std::string& value);
     void ApplyDarkTheme(float dpiScale);
     LRESULT WINAPI ToolWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -428,7 +428,15 @@ namespace
                 ApplyHotkey(owner);
                 ApplyItemHotkeys(owner);
             }
-            if (actions.startupChanged) ApplyStartupSetting();
+            if (actions.startupChanged)
+            {
+                // The Run entry is updated immediately. Persist the matching setting
+                // just as promptly, otherwise a shutdown shortly after clicking the
+                // checkbox can leave the next launch to remove that entry again.
+                ApplyStartupSetting();
+                MarkDirty(false);
+                SaveNow();
+            }
             if (actions.windowTitleChanged)
             {
                 const std::wstring title = Utf8ToWide(DisplayTitle(config));
